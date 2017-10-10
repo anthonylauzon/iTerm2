@@ -48,7 +48,7 @@ typedef struct {
     BOOL _useBrightBold;
 }
 
-#pragma mark - iTermMetalTestDriverDataSource
+#pragma mark - iTermMetalDriverDataSource
 
 - (void)metalDriverWillBeginDrawingFrame {
     if (self.textView.drawingHelper.delegate == nil) {
@@ -343,7 +343,7 @@ typedef struct {
     return result;
 }
 
-#warning TODO: This was copied form PTYTextView. Make it a clas method and share it.
+#warning TODO: This was copied form PTYTextView. Make it a class method and share it.
 - (NSColor *)colorForCode:(int)theIndex
                     green:(int)green
                      blue:(int)blue

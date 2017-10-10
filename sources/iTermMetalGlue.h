@@ -6,7 +6,7 @@
 //
 
 #import <Foundation/Foundation.h>
-#import "iTermMetalTestDriver.h"
+#import "iTermMetalDriver.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -14,7 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @class VT100Screen;
 @class PTYTextView;
 
-@interface iTermMetalGlue : NSObject<iTermMetalTestDriverDataSource>
+@interface iTermMetalGlue : NSObject<iTermMetalDriverDataSource>
 
 @property (nullable, nonatomic, strong) PTYTextView *textView;
 @property (nonatomic, strong) VT100Screen *screen;

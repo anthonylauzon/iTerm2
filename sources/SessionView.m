@@ -16,7 +16,7 @@
 #import "PTYTextView.h"
 #import "SessionTitleView.h"
 #import "SplitSelectionView.h"
-#import "iTermMetalTestDriver.h"
+#import "iTermMetalDriver.h"
 
 #import <MetalKit/MetalKit.h>
 
@@ -87,7 +87,7 @@ static NSDate* lastResizeDate_;
     NSView *_hoverURLView;
     NSTextField *_hoverURLTextField;
 
-    iTermMetalTestDriver *_driver NS_AVAILABLE_MAC(10_11);
+    iTermMetalDriver *_driver NS_AVAILABLE_MAC(10_11);
     MTKView *_metalView NS_AVAILABLE_MAC(10_11);
 }
 
@@ -136,7 +136,7 @@ static NSDate* lastResizeDate_;
             _metalView = [[MTKView alloc] initWithFrame:_scrollview.contentView.frame
                                                  device:MTLCreateSystemDefaultDevice()];
             [self addSubview:_metalView];
-            _driver = [[iTermMetalTestDriver alloc] initWithMetalKitView:_metalView];
+            _driver = [[iTermMetalDriver alloc] initWithMetalKitView:_metalView];
             [_driver mtkView:_metalView drawableSizeWillChange:_metalView.drawableSize];
             _metalView.delegate = _driver;
         }

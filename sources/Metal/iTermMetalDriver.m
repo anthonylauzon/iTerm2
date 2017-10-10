@@ -3,7 +3,7 @@
 
 #import "DebugLogging.h"
 #import "iTermTextureArray.h"
-#import "iTermMetalTestDriver.h"
+#import "iTermMetalDriver.h"
 #import "iTermBackgroundImageRenderer.h"
 #import "iTermBackgroundColorRenderer.h"
 #import "iTermBadgeRenderer.h"
@@ -17,11 +17,11 @@
 
 #import "iTermShaderTypes.h"
 
-@interface iTermMetalTestDriver()
+@interface iTermMetalDriver()
 @property (atomic) BOOL busy;
 @end
 
-@implementation iTermMetalTestDriver {
+@implementation iTermMetalDriver {
     iTermBackgroundImageRenderer *_backgroundImageRenderer;
     iTermBackgroundColorRenderer *_backgroundColorRenderer;
     iTermTextRenderer *_textRenderer;
@@ -130,7 +130,7 @@
     });
 }
 
-- (iTermTextRendererContext *)updateRenderersWithDataSource:(id<iTermMetalTestDriverDataSource>)dataSource {
+- (iTermTextRendererContext *)updateRenderersWithDataSource:(id<iTermMetalDriverDataSource>)dataSource {
 //    _iteration++;
 
 //    [_blockCursorRenderer setCoord:(VT100GridCoord){ 1, 1 }];
@@ -187,8 +187,7 @@
 
 /// Called whenever the view needs to render a frame
 - (void)drawInMTKView:(nonnull MTKView *)view {
-    DLog(@"%@ %@ %@", dispatch_get_current_queue(), NSStringFromSelector(_cmd), self);
-    id<iTermMetalTestDriverDataSource> dataSource = _dataSource;
+    id<iTermMetalDriverDataSource> dataSource = _dataSource;
     if (self.busy) {
         NSLog(@"  abort: busy");
         return;
@@ -241,12 +240,12 @@
     iTermPreciseTimerStatsStartTimer(&_metalSetupStats);
     DLog(@"  Really drawing");
     id <MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
-    commandBuffer.label = @"Test Driver Draw";
+    commandBuffer.label = @"Draw Terminal";
 
     MTLRenderPassDescriptor *renderPassDescriptor = view.currentRenderPassDescriptor;
     if (renderPassDescriptor != nil) {
         id <MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
-        renderEncoder.label = @"TerminalRenderEncoder";
+        renderEncoder.label = @"Render Terminal";
         view.currentDrawable.texture.label = @"Drawable";
 
         // Set the region of the drawable to which we'll draw.

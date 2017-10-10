@@ -112,7 +112,7 @@ namespace iTerm2 {
         GlyphKey();
 
     public:
-        explicit GlyphKey(iTermMetalGlyphKey *repr) : _repr(*repr) { }
+        explicit GlyphKey(const iTermMetalGlyphKey *repr) : _repr(*repr) { }
 
         // Copy constructor
         GlyphKey(const GlyphKey &other) {
@@ -250,8 +250,9 @@ namespace iTerm2 {
     delete _textureMap;
 }
 
-- (NSInteger)findOrAllocateIndexOfLockedTextureWithKey:(iTermMetalGlyphKey *)key
-                                              creation:(NSImage *(^)(void))creation {
+- (NSInteger)findOrAllocateIndexOfLockedTextureWithKey:(const iTermMetalGlyphKey *)key
+                                                column:(int)column
+                                              creation:(NSImage *(^)(int))creation {
     const iTerm2::GlyphKey glyphKey(key);
 
     int index = _textureMap->get_index(glyphKey);
@@ -259,7 +260,7 @@ namespace iTerm2 {
         DLog(@"%@: lock existing texture %@", self.label, @(index));
         return index;
     } else {
-        NSImage *image = creation();
+        NSImage *image = creation(column);
         if (image != nil) {
             index = _textureMap->allocate_index(glyphKey);
             DLog(@"%@: create and stage new texture %@", self.label, @(index));

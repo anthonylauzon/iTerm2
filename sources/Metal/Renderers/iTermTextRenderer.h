@@ -29,11 +29,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)prepareForDrawWithContext:(iTermTextRendererContext *)context
                        completion:(void (^)(void))completion;
 
-- (void)setCharacter:(iTermMetalGlyphKey *)character
-          attributes:(iTermMetalGlyphAttributes *)attributes
-               coord:(VT100GridCoord)coord
-             context:(iTermTextRendererContext *)context
-            creation:(NSImage *(NS_NOESCAPE ^)(void))creation;
+- (void)setGlyphKeysData:(NSData *)glyphKeysData
+          attributesData:(NSData *)attributesData
+                     row:(int)row
+                 context:(iTermTextRendererContext *)context
+                creation:(NSImage *(NS_NOESCAPE ^)(int x))creation;
 
 - (void)releaseContext:(iTermTextRendererContext *)context;
 

@@ -17,6 +17,17 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef struct {
+    unsigned int isMatch : 1;
+    unsigned int inUnderlinedRange : 1;
+    unsigned int selected : 1;
+    unsigned int foregroundColor : 8;
+    unsigned int fgGreen : 8;
+    unsigned int fgBlue  : 8;
+    unsigned int bold : 1;
+    unsigned int faint : 1;
+    CGFloat backgroundColor[4];
+} iTermTextColorKey;
 
 @implementation iTermMetalGlue {
     BOOL _skip;
@@ -26,7 +37,7 @@ NS_ASSUME_NONNULL_BEGIN
     NSColor *_previousForegroundColor;
     NSMutableArray<NSData *> *_lines;
     NSMutableArray<NSIndexSet *> *_selectedIndexes;
-    NSMutableArray<NSData *> *_matches;
+    NSMutableDictionary<NSNumber *, NSData *> *_matches;
     iTermColorMap *_colorMap;
     PTYFontInfo *_asciiFont;
     PTYFontInfo *_nonAsciiFont;
@@ -52,14 +63,17 @@ NS_ASSUME_NONNULL_BEGIN
     // and any other data dependencies.
     _lines = [NSMutableArray array];
     _selectedIndexes = [NSMutableArray array];
-    _matches = [NSMutableArray array];
+    _matches = [NSMutableDictionary dictionary];
     VT100GridCoordRange coordRange = [self.textView.drawingHelper coordRangeForRect:self.textView.enclosingScrollView.documentVisibleRect];
     const int width = coordRange.end.x - coordRange.start.x;
     for (int i = coordRange.start.y; i < coordRange.end.y; i++) {
         screen_char_t *line = [self.screen getLineAtIndex:i];
         [_lines addObject:[NSData dataWithBytes:line length:sizeof(screen_char_t) * width]];
         [_selectedIndexes addObject:[self.textView.selection selectedIndexesOnLine:i]];
-        [_matches addObject:[self.textView.drawingHelper.delegate drawingHelperMatchesOnLine:i] ?: [NSData data]];
+        NSData *findMatches = [self.textView.drawingHelper.delegate drawingHelperMatchesOnLine:i];
+        if (findMatches) {
+            _matches[@(i - coordRange.start.y)] = findMatches;
+        }
     }
 
     _colorMap = [self.textView.colorMap copy];
@@ -72,35 +86,75 @@ NS_ASSUME_NONNULL_BEGIN
     _useBrightBold = self.textView.useBrightBold;
 }
 
-- (iTermMetalGlyphKey)metalCharacterAtScreenCoord:(VT100GridCoord)coord
-                                       attributes:(iTermMetalGlyphAttributes *)attributes {
-    screen_char_t *line = (screen_char_t *)_lines[coord.y].bytes;
-    BOOL selected = [_selectedIndexes[coord.y] containsIndex:coord.x];
+- (void)metalGetGlyphKeys:(iTermMetalGlyphKey *)glyphKeys
+               attributes:(iTermMetalGlyphAttributes *)attributes
+                      row:(int)row
+                    width:(int)width {
+    screen_char_t *line = (screen_char_t *)_lines[row].bytes;
+    NSIndexSet *selectedIndexes = _selectedIndexes[row];
+    NSData *findMatches = _matches[@(row)];
+    iTermTextColorKey keys[2];
+    iTermTextColorKey *currentColorKey = &keys[0];
+    iTermTextColorKey *previousColorKey = &keys[1];
 
-    BOOL findMatch = NO;
-    NSData *findMatches = _matches[coord.y];
-    if (findMatches && !selected) {
-        findMatch = CheckFindMatchAtIndex(findMatches, coord.x);
+    for (int x = 0; x < width; x++) {
+        BOOL selected = [selectedIndexes containsIndex:x];
+        BOOL findMatch = NO;
+        if (findMatches && !selected) {
+            findMatch = CheckFindMatchAtIndex(findMatches, x);
+        }
+
+        // Build up a compact key describing all the inputs to a text color
+        currentColorKey->isMatch = findMatch;
+        currentColorKey->inUnderlinedRange = NO;  // TODO
+        currentColorKey->selected = selected;
+        currentColorKey->foregroundColor = line[x].foregroundColor;
+        currentColorKey->fgGreen = line[x].fgGreen;
+        currentColorKey->fgBlue = line[x].fgBlue;
+        currentColorKey->bold = line[x].bold;
+        currentColorKey->faint = line[x].faint;
+        currentColorKey->backgroundColor[0] = 0;  // TODO
+        currentColorKey->backgroundColor[1] = 0;  // TODO
+        currentColorKey->backgroundColor[2] = 0;  // TODO
+        if (x > 0 &&
+            currentColorKey->isMatch == previousColorKey->isMatch &&
+            currentColorKey->inUnderlinedRange == previousColorKey->inUnderlinedRange &&
+            currentColorKey->selected == previousColorKey->selected &&
+            currentColorKey->foregroundColor == previousColorKey->foregroundColor &&
+            currentColorKey->fgGreen == previousColorKey->fgGreen &&
+            currentColorKey->fgBlue == previousColorKey->fgBlue &&
+            currentColorKey->bold == previousColorKey->bold &&
+            currentColorKey->faint == previousColorKey->faint &&
+            currentColorKey->backgroundColor[0] == previousColorKey->backgroundColor[0] &&
+            currentColorKey->backgroundColor[1] == previousColorKey->backgroundColor[1] &&
+            currentColorKey->backgroundColor[2] == previousColorKey->backgroundColor[2]) {
+            memcpy(attributes[x].foregroundColor,
+                   attributes[x - 1].foregroundColor,
+                   sizeof(CGFloat) * 4);
+        } else {
+            NSColor *textColor = [self textColorForCharacter:&line[x]
+                                                        line:row
+                                             backgroundColor:nil  // TODO
+                                                    selected:selected
+                                                   findMatch:findMatch
+                                           inUnderlinedRange:NO  // TODO
+                                                       index:x];
+            [textColor getComponents:attributes[x].foregroundColor];
+        }
+
+        // Swap current and previous
+        iTermTextColorKey *temp = currentColorKey;
+        currentColorKey = previousColorKey;
+        previousColorKey = temp;
+
+        // Also need to take into account which font will be used (bold, italic, nonascii, etc.) plus
+        // box drawing and images. If I want to support subpixel rendering then background color has
+        // to be a factor also.
+        glyphKeys[x].code = line[x].code;
+        glyphKeys[x].isComplex = line[x].complexChar;
+        glyphKeys[x].image = line[x].image;
+        glyphKeys[x].boxDrawing = NO;
     }
-
-    NSColor *textColor = [self textColorForCharacter:&line[coord.x]
-                                                line:coord.y
-                                     backgroundColor:nil  // TODO
-                                            selected:selected
-                                           findMatch:findMatch
-                                   inUnderlinedRange:NO  // TODO
-                                               index:coord.x];
-    [textColor getComponents:attributes->foregroundColor];
-    // Also need to take into account which font will be used (bold, italic, nonascii, etc.) plus
-    // box drawing and images. If I want to support subpixel rendering then background color has
-    // to be a factor also.
-    iTermMetalGlyphKey glyphKey = {
-        .code = line[coord.x].code,
-        .isComplex = line[coord.x].complexChar,
-        .image = line[coord.x].image,
-        .boxDrawing = NO
-    };
-    return glyphKey;
 }
 
 - (NSImage *)metalImageForCharacterAtCoord:(VT100GridCoord)coord

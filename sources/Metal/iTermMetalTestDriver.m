@@ -138,20 +138,23 @@
 
     CGSize cellSize = _cellSize;
     CGFloat scale = _scale;
+
     for (int y = 0; y < _rows; y++) {
-        for (int x = 0; x < _columns; x++) {
-            iTermMetalGlyphAttributes attributes;
-            iTermMetalGlyphKey c = [_dataSource metalCharacterAtScreenCoord:VT100GridCoordMake(x, y) attributes:&attributes];
-            [_textRenderer setCharacter:&c
-                             attributes:&attributes
-                                  coord:(VT100GridCoord){x,y}
+        NSMutableData *keysData = [NSMutableData dataWithLength:sizeof(iTermMetalGlyphKey) * _columns];
+        NSMutableData *attributesData = [NSMutableData dataWithLength:sizeof(iTermMetalGlyphAttributes) * _columns];
+        [_dataSource metalGetGlyphKeys:keysData.mutableBytes
+                            attributes:attributesData.mutableBytes
+                                   row:y
+                                 width:_columns];
+        [_textRenderer setGlyphKeysData:keysData
+                         attributesData:attributesData
+                                    row:y
                                 context:context
-                               creation:^NSImage * _Nonnull{
+                               creation:^NSImage *(int x) {
                                    return [dataSource metalImageForCharacterAtCoord:VT100GridCoordMake(x, y)
                                                                                size:cellSize
                                                                               scale:scale];
                                }];
-        }
     }
 
 //    i = 0;
@@ -259,8 +262,8 @@ static int george;
             DLog(@"  Completed");
             [_textRenderer releaseContext:context];
             NSTimeInterval end = [NSDate timeIntervalSinceReferenceDate];
-            NSLog(@"Preparation: %0.3f", startDrawTime-start);
-            NSLog(@"Rendering:   %0.3f", end-startDrawTime);
+//            NSLog(@"Preparation: %0.3f", startDrawTime-start);
+//            NSLog(@"Rendering:   %0.3f", end-startDrawTime);
             DLog(@"%@ fps", @(1.0 / (end - start)));
             george--;
             self.busy = NO;

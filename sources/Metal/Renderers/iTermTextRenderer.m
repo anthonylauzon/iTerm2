@@ -135,30 +135,37 @@
     [self allocateNewPIUs];
 }
 
-- (void)setCharacter:(iTermMetalGlyphKey *)glyphKey
-          attributes:(iTermMetalGlyphAttributes *)attributes
-               coord:(VT100GridCoord)coord
-             context:(nonnull iTermTextRendererContext *)context
-            creation:(NSImage *(NS_NOESCAPE ^)(void))creation {
-    // Look it up in the session map. If we find it, we can use it directly. The creation block will not be called.a
-    NSInteger index =
-        [_textureMap findOrAllocateIndexOfLockedTextureWithKey:glyphKey
-                                                      creation:creation];
-    if (index >= 0) {
-        // Update the PIU with the session index. It may not be a legit value yet.
-        const size_t i = coord.x + coord.y * _cellRenderer.gridSize.width;
-        iTermTextPIU *piu = &_piuContents[i];
-        MTLOrigin origin = [_textureMap.array offsetForIndex:index];
-        const float w = 1.0 / _textureMap.array.atlasSize.width;
-        const float h = 1.0 / _textureMap.array.atlasSize.height;
-        piu->textureOffset = (vector_float2){ origin.x * w, origin.y * h };
-        piu->color = (vector_float4){
-            attributes->foregroundColor[0],
-            attributes->foregroundColor[1],
-            attributes->foregroundColor[2],
-            attributes->foregroundColor[3],
-        };
-        [context addIndex:index];
+- (void)setGlyphKeysData:(NSData *)glyphKeysData
+          attributesData:(NSData *)attributesData
+                     row:(int)row
+                 context:(iTermTextRendererContext *)context
+                creation:(NSImage *(NS_NOESCAPE ^)(int x))creation {
+    const int width = _cellRenderer.gridSize.width;
+    const iTermMetalGlyphKey *glyphKeys = (iTermMetalGlyphKey *)glyphKeysData.bytes;
+    const iTermMetalGlyphAttributes *attributes = (iTermMetalGlyphAttributes *)attributesData.bytes;
+    const float w = 1.0 / _textureMap.array.atlasSize.width;
+    const float h = 1.0 / _textureMap.array.atlasSize.height;
+    iTermTextureArray *array = _textureMap.array;
+
+    for (int x = 0; x < width; x++) {
+        NSInteger index =
+            [_textureMap findOrAllocateIndexOfLockedTextureWithKey:&glyphKeys[x]
+                                                            column:x
+                                                          creation:creation];
+        if (index >= 0) {
+            // Update the PIU with the session index. It may not be a legit value yet.
+            const size_t i = x + row * _cellRenderer.gridSize.width;
+            iTermTextPIU *piu = &_piuContents[i];
+            MTLOrigin origin = [array offsetForIndex:index];
+            piu->textureOffset = (vector_float2){ origin.x * w, origin.y * h };
+            piu->color = (vector_float4){
+                attributes[x].foregroundColor[0],
+                attributes[x].foregroundColor[1],
+                attributes[x].foregroundColor[2],
+                attributes[x].foregroundColor[3],
+            };
+            [context addIndex:index];
+        }
     }
 }
 

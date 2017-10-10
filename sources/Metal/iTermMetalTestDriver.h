@@ -7,8 +7,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 @protocol iTermMetalTestDriverDataSource<NSObject>
 
-- (iTermMetalGlyphKey)metalCharacterAtScreenCoord:(VT100GridCoord)coord
-                                       attributes:(iTermMetalGlyphAttributes *)attributes;
+- (void)metalGetGlyphKeys:(iTermMetalGlyphKey *)glyphKeys
+               attributes:(iTermMetalGlyphAttributes *)attributes
+                      row:(int)row
+                    width:(int)width;
 
 - (void)metalDriverWillBeginDrawingFrame;
 - (NSImage *)metalImageForCharacterAtCoord:(VT100GridCoord)coord

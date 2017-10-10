@@ -54,6 +54,9 @@
     iTermPreciseTimerStats _metalSetupStats;
     iTermPreciseTimerStats _renderingStats;
     iTermPreciseTimerStats _preparingStats;
+    iTermPreciseTimerStats _endToEnd;
+    int _dropped;
+    int _total;
 }
 
 - (nullable instancetype)initWithMetalKitView:(nonnull MTKView *)mtkView {
@@ -81,6 +84,8 @@
         iTermPreciseTimerStatsInit(&_blitStats, "blit");
         iTermPreciseTimerStatsInit(&_metalSetupStats, "metal setup");
         iTermPreciseTimerStatsInit(&_renderingStats, "rendering");
+        iTermPreciseTimerStatsInit(&_endToEnd, "end to end");
+
     }
 
     return self;
@@ -158,8 +163,10 @@
     for (int y = 0; y < _rows; y++) {
         NSMutableData *keysData = [NSMutableData dataWithLength:sizeof(iTermMetalGlyphKey) * _columns];
         NSMutableData *attributesData = [NSMutableData dataWithLength:sizeof(iTermMetalGlyphAttributes) * _columns];
+        NSMutableData *backgroundColorData = [NSMutableData dataWithLength:sizeof(vector_float4) * _columns];
         [_dataSource metalGetGlyphKeys:keysData.mutableBytes
                             attributes:attributesData.mutableBytes
+                            background:backgroundColorData.mutableBytes
                                    row:y
                                  width:_columns];
         [_textRenderer setGlyphKeysData:keysData
@@ -171,29 +178,26 @@
                                                                                size:cellSize
                                                                               scale:scale];
                                }];
+        [_backgroundColorRenderer setColorData:backgroundColorData
+                                           row:y
+                                         width:_columns];
     }
 
-//    i = 0;
-//    for (int y = 0; y < _rows; y++) {
-//        for (int x = 0; x < _columns; x++) {
-//            int j = i + _iteration / 10;
-//            [_backgroundColorRenderer setColor:(vector_float4){ sin(j), sin(j + M_PI_2), sin(j + M_PI), ((j/60) % 2) ? 1 : 0 }
-//                                         coord:(VT100GridCoord){x, y}];
-//            i++;
-//        }
-//    }
     return context;
 }
 
 /// Called whenever the view needs to render a frame
 - (void)drawInMTKView:(nonnull MTKView *)view {
     id<iTermMetalDriverDataSource> dataSource = _dataSource;
+    _total++;
     if (self.busy) {
-        NSLog(@"  abort: busy");
+        NSLog(@"  abort: busy (dropped %@%%)", @((_dropped * 100)/_total));
+        _dropped++;
         return;
     }
     DLog(@"Not busy");
 
+    iTermPreciseTimerStatsStartTimer(&_endToEnd);
     iTermPreciseTimerStatsStartTimer(&_mainThreadStats);
     [dataSource metalDriverWillBeginDrawingFrame];
     self.busy = YES;
@@ -260,7 +264,7 @@
         [renderEncoder setViewport:viewport];
 
 //        [_backgroundImageRenderer drawWithRenderEncoder:renderEncoder];
-//        [_backgroundColorRenderer drawWithRenderEncoder:renderEncoder];
+        [_backgroundColorRenderer drawWithRenderEncoder:renderEncoder];
 //        [_broadcastStripesRenderer drawWithRenderEncoder:renderEncoder];
 //        [_badgeRenderer drawWithRenderEncoder:renderEncoder];
 //        [_cursorGuideRenderer drawWithRenderEncoder:renderEncoder];
@@ -274,13 +278,12 @@
 
         [_markRenderer drawWithRenderEncoder:renderEncoder];
 
-        iTermPreciseTimerStatsMeasureAndRecordTimer(&_metalSetupStats);
-        iTermPreciseTimerStatsStartTimer(&_renderingStats);
-
         [renderEncoder endEncoding];
 
         [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull buffer) {
             iTermPreciseTimerStatsMeasureAndRecordTimer(&_renderingStats);
+            iTermPreciseTimerStatsMeasureAndRecordTimer(&_endToEnd);
+
             DLog(@"  Completed");
             [_textRenderer releaseContext:context];
 
@@ -289,7 +292,8 @@
                 _dispatchStats,
                 _preparingStats,
                 _blitStats,
-                _renderingStats
+                _renderingStats,
+                _endToEnd
             };
             iTermPreciseTimerPeriodicLog(stats, sizeof(stats) / sizeof(*stats), 1, YES);
 
@@ -297,8 +301,12 @@
         }];
 
         [commandBuffer presentDrawable:view.currentDrawable];
+        [commandBuffer commit];
+        iTermPreciseTimerStatsMeasureAndRecordTimer(&_metalSetupStats);
+        iTermPreciseTimerStatsStartTimer(&_renderingStats);
+    } else {
+        [commandBuffer commit];
     }
-    [commandBuffer commit];
 }
 
 @end

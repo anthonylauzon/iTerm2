@@ -15,3 +15,4 @@ typedef struct {
 typedef struct {
     CGFloat foregroundColor[4];
 } iTermMetalGlyphAttributes;
+

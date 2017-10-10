@@ -9,8 +9,10 @@
 
 #import "DebugLogging.h"
 #import "iTermColorMap.h"
+#import "iTermController.h"
 #import "iTermSelection.h"
 #import "iTermTextDrawingHelper.h"
+#import "NSColor+iTerm.h"
 #import "PTYFontInfo.h"
 #import "PTYTextView.h"
 #import "VT100Screen.h"
@@ -29,12 +31,31 @@ typedef struct {
     CGFloat backgroundColor[4];
 } iTermTextColorKey;
 
+typedef struct {
+    NSRange range;
+    int bgColor;
+    int bgGreen;
+    int bgBlue;
+    ColorMode bgColorMode;
+    BOOL selected;
+    BOOL isMatch;
+} iTermBackgroundColorKey;
+
+static vector_float4 VectorForColor(NSColor *color) {
+    return (vector_float4) { color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent };
+}
+
+static NSColor *ColorForVector(vector_float4 v) {
+    return [NSColor colorWithRed:v.x green:v.y blue:v.z alpha:v.w];
+}
+
 @implementation iTermMetalGlue {
     BOOL _skip;
     BOOL _havePreviousCharacterAttributes;
     screen_char_t _previousCharacterAttributes;
-    NSColor *_lastUnprocessedColor;
-    NSColor *_previousForegroundColor;
+    vector_float4 _lastUnprocessedColor;
+    BOOL _havePreviousForegroundColor;
+    vector_float4 _previousForegroundColor;
     NSMutableArray<NSData *> *_lines;
     NSMutableArray<NSIndexSet *> *_selectedIndexes;
     NSMutableDictionary<NSNumber *, NSData *> *_matches;
@@ -46,6 +67,10 @@ typedef struct {
     BOOL _useNonAsciiFont;
     BOOL _reverseVideo;
     BOOL _useBrightBold;
+    BOOL _isFrontTextView;
+    vector_float4 _unfocusedSelectionColor;
+    CGFloat _transparencyAlpha;
+    BOOL _transparencyAffectsOnlyDefaultBackgroundColor;
 }
 
 #pragma mark - iTermMetalDriverDataSource
@@ -58,6 +83,11 @@ typedef struct {
     _skip = NO;
 
     _havePreviousCharacterAttributes = NO;
+    _isFrontTextView = (self.textView == [[iTermController sharedInstance] frontTextView]);
+    _unfocusedSelectionColor = VectorForColor([[_colorMap colorForKey:kColorMapSelection] colorDimmedBy:2.0/3.0
+                                                                                       towardsGrayLevel:0.5]);
+    _transparencyAlpha = self.textView.transparencyAlpha;
+    _transparencyAffectsOnlyDefaultBackgroundColor = self.textView.drawingHelper.transparencyAffectsOnlyDefaultBackgroundColor;
 
     // Copy lines from model. Always use these for consistency. I should also copy the color map
     // and any other data dependencies.
@@ -88,6 +118,7 @@ typedef struct {
 
 - (void)metalGetGlyphKeys:(iTermMetalGlyphKey *)glyphKeys
                attributes:(iTermMetalGlyphAttributes *)attributes
+               background:(vector_float4 *)background
                       row:(int)row
                     width:(int)width {
     screen_char_t *line = (screen_char_t *)_lines[row].bytes;
@@ -104,6 +135,21 @@ typedef struct {
             findMatch = CheckFindMatchAtIndex(findMatches, x);
         }
 
+        // Background colors
+        iTermBackgroundColorKey backgroundKey = {
+            .range = { x, 1 },
+            .bgColor = line[x].backgroundColor,
+            .bgGreen = line[x].bgGreen,
+            .bgBlue = line[x].bgBlue,
+            .bgColorMode = line[x].backgroundColorMode,
+            .selected = selected,
+            .isMatch = findMatch,
+        };
+        vector_float4 unprocessed = [self unprocessedColorForBackgroundColorKey:&backgroundKey];
+        // The unprocessed color is needed for minimum contrast computation for text color.
+        background[x] = VectorForColor([_colorMap processedBackgroundColorForBackgroundColor:ColorForVector(unprocessed)]);
+
+        // Foreground colors
         // Build up a compact key describing all the inputs to a text color
         currentColorKey->isMatch = findMatch;
         currentColorKey->inUnderlinedRange = NO;  // TODO
@@ -132,14 +178,17 @@ typedef struct {
                    attributes[x - 1].foregroundColor,
                    sizeof(CGFloat) * 4);
         } else {
-            NSColor *textColor = [self textColorForCharacter:&line[x]
-                                                        line:row
-                                             backgroundColor:nil  // TODO
-                                                    selected:selected
-                                                   findMatch:findMatch
-                                           inUnderlinedRange:NO  // TODO
-                                                       index:x];
-            [textColor getComponents:attributes[x].foregroundColor];
+            vector_float4 textColor = [self textColorForCharacter:&line[x]
+                                                             line:row
+                                                  backgroundColor:background[x]
+                                                         selected:selected
+                                                        findMatch:findMatch
+                                                inUnderlinedRange:NO  // TODO
+                                                            index:x];
+            attributes[x].foregroundColor[0] = textColor.x;
+            attributes[x].foregroundColor[1] = textColor.y;
+            attributes[x].foregroundColor[2] = textColor.z;
+            attributes[x].foregroundColor[3] = textColor.w;
         }
 
         // Swap current and previous
@@ -155,6 +204,146 @@ typedef struct {
         glyphKeys[x].image = line[x].image;
         glyphKeys[x].boxDrawing = NO;
     }
+}
+
+- (vector_float4)selectionColorForCurrentFocus {
+    if (_isFrontTextView) {
+        return VectorForColor([_colorMap processedBackgroundColorForBackgroundColor:[_colorMap colorForKey:kColorMapSelection]]);
+    } else {
+        return _unfocusedSelectionColor;
+    }
+}
+
+- (vector_float4)unprocessedColorForBackgroundColorKey:(iTermBackgroundColorKey *)colorKey {
+    vector_float4 color = { 0, 0, 0, 0 };
+    CGFloat alpha = _transparencyAlpha;
+    if (colorKey->selected) {
+        color = [self selectionColorForCurrentFocus];
+        if (_transparencyAffectsOnlyDefaultBackgroundColor) {
+            alpha = 1;
+        }
+    } else if (colorKey->isMatch) {
+        color = (vector_float4){ 1, 1, 0, 1 };
+    } else {
+        const BOOL defaultBackground = (colorKey->bgColor == ALTSEM_DEFAULT &&
+                                        colorKey->bgColorMode == ColorModeAlternate);
+        // When set in preferences, applies alpha only to the defaultBackground
+        // color, useful for keeping Powerline segments opacity(background)
+        // consistent with their seperator glyphs opacity(foreground).
+        if (_transparencyAffectsOnlyDefaultBackgroundColor && !defaultBackground) {
+            alpha = 1;
+        }
+        if (_reverseVideo && defaultBackground) {
+            // Reverse video is only applied to default background-
+            // color chars.
+            color = [self colorForCode:ALTSEM_DEFAULT
+                                 green:0
+                                  blue:0
+                             colorMode:ColorModeAlternate
+                                  bold:NO
+                                 faint:NO
+                          isBackground:NO];
+        } else {
+            // Use the regular background color.
+            color = [self colorForCode:colorKey->bgColor
+                                 green:colorKey->bgGreen
+                                  blue:colorKey->bgBlue
+                             colorMode:colorKey->bgColorMode
+                                  bold:NO
+                                 faint:NO
+                          isBackground:YES];
+        }
+
+//        if (defaultBackground && _hasBackgroundImage) {
+//            alpha = 1 - _blend;
+//        }
+    }
+    color.w = alpha;
+    return color;
+}
+
+#warning Remember to add support for blinking text.
+
+- (vector_float4)colorForCode:(int)theIndex
+                        green:(int)green
+                         blue:(int)blue
+                    colorMode:(ColorMode)theMode
+                         bold:(BOOL)isBold
+                        faint:(BOOL)isFaint
+                 isBackground:(BOOL)isBackground {
+    iTermColorMapKey key = [self colorMapKeyForCode:theIndex
+                                              green:green
+                                               blue:blue
+                                          colorMode:theMode
+                                               bold:isBold
+                                       isBackground:isBackground];
+    if (isBackground) {
+        return VectorForColor([_colorMap colorForKey:key]);
+    } else {
+        vector_float4 color = VectorForColor([_colorMap colorForKey:key]);
+        if (isFaint) {
+            color.w = 0.5;
+        }
+        return color;
+    }
+}
+
+- (iTermColorMapKey)colorMapKeyForCode:(int)theIndex
+                                 green:(int)green
+                                  blue:(int)blue
+                             colorMode:(ColorMode)theMode
+                                  bold:(BOOL)isBold
+                          isBackground:(BOOL)isBackground {
+    BOOL isBackgroundForDefault = isBackground;
+    switch (theMode) {
+        case ColorModeAlternate:
+            switch (theIndex) {
+                case ALTSEM_SELECTED:
+                    if (isBackground) {
+                        return kColorMapSelection;
+                    } else {
+                        return kColorMapSelectedText;
+                    }
+                case ALTSEM_CURSOR:
+                    if (isBackground) {
+                        return kColorMapCursor;
+                    } else {
+                        return kColorMapCursorText;
+                    }
+                case ALTSEM_REVERSED_DEFAULT:
+                    isBackgroundForDefault = !isBackgroundForDefault;
+                    // Fall through.
+                case ALTSEM_DEFAULT:
+                    if (isBackgroundForDefault) {
+                        return kColorMapBackground;
+                    } else {
+                        if (isBold && _useBrightBold) {
+                            return kColorMapBold;
+                        } else {
+                            return kColorMapForeground;
+                        }
+                    }
+            }
+            break;
+        case ColorMode24bit:
+            return [iTermColorMap keyFor8bitRed:theIndex green:green blue:blue];
+        case ColorModeNormal:
+            // Render bold text as bright. The spec (ECMA-48) describes the intense
+            // display setting (esc[1m) as "bold or bright". We make it a
+            // preference.
+            if (isBold &&
+                _useBrightBold &&
+                (theIndex < 8) &&
+                !isBackground) { // Only colors 0-7 can be made "bright".
+                theIndex |= 8;  // set "bright" bit.
+            }
+            return kColorMap8bitBase + (theIndex & 0xff);
+
+        case ColorModeInvalid:
+            return kColorMapInvalid;
+    }
+    NSAssert(ok, @"Bogus color mode %d", (int)theMode);
+    return kColorMapInvalid;
 }
 
 - (NSImage *)metalImageForCharacterAtCoord:(VT100GridCoord)coord
@@ -264,40 +453,40 @@ typedef struct {
 
 #pragma mark - Color
 
-- (NSColor *)textColorForCharacter:(screen_char_t *)c
-                              line:(int)line
-                   backgroundColor:(nullable NSColor *)backgroundColor
-                          selected:(BOOL)selected
-                         findMatch:(BOOL)findMatch
-                 inUnderlinedRange:(BOOL)inUnderlinedRange
-                             index:(int)index {
-    NSColor *rawColor = nil;
+- (vector_float4)textColorForCharacter:(screen_char_t *)c
+                                  line:(int)line
+                       backgroundColor:(vector_float4)backgroundColor
+                              selected:(BOOL)selected
+                             findMatch:(BOOL)findMatch
+                     inUnderlinedRange:(BOOL)inUnderlinedRange
+                                 index:(int)index {
+    vector_float4 rawColor = { 0, 0, 0, 0 };
     BOOL isMatch = NO;
     iTermColorMap *colorMap = _colorMap;
-    const BOOL needsProcessing = backgroundColor && (colorMap.minimumContrast > 0.001 ||
-                                                     colorMap.dimmingAmount > 0.001 ||
-                                                     colorMap.mutingAmount > 0.001 ||
-                                                     c->faint);  // faint implies alpha<1 and is faster than getting the alpha component
+    const BOOL needsProcessing = (colorMap.minimumContrast > 0.001 ||
+                                  colorMap.dimmingAmount > 0.001 ||
+                                  colorMap.mutingAmount > 0.001 ||
+                                  c->faint);  // faint implies alpha<1 and is faster than getting the alpha component
 
 
     if (isMatch) {
         // Black-on-yellow search result.
-        rawColor = [NSColor colorWithCalibratedRed:0 green:0 blue:0 alpha:1];
+        rawColor = (vector_float4){ 0, 0, 0, 1 };
         _havePreviousCharacterAttributes = NO;
     } else if (inUnderlinedRange) {
         // Blue link text.
-        rawColor = [colorMap colorForKey:kColorMapLink];
+        rawColor = VectorForColor([_colorMap colorForKey:kColorMapLink]);
         _havePreviousCharacterAttributes = NO;
     } else if (selected) {
         // Selected text.
-        rawColor = [colorMap colorForKey:kColorMapSelectedText];
+        rawColor = VectorForColor([colorMap colorForKey:kColorMapSelectedText]);
         _havePreviousCharacterAttributes = NO;
     } else if (_reverseVideo &&
                ((c->foregroundColor == ALTSEM_DEFAULT && c->foregroundColorMode == ColorModeAlternate) ||
                 (c->foregroundColor == ALTSEM_CURSOR && c->foregroundColorMode == ColorModeAlternate))) {
            // Reverse video is on. Either is cursor or has default foreground color. Use
            // background color.
-           rawColor = [colorMap colorForKey:kColorMapBackground];
+           rawColor = VectorForColor([colorMap colorForKey:kColorMapBackground]);
            _havePreviousCharacterAttributes = NO;
     } else if (!_havePreviousCharacterAttributes ||
                c->foregroundColor != _previousCharacterAttributes.foregroundColor ||
@@ -306,7 +495,7 @@ typedef struct {
                c->foregroundColorMode != _previousCharacterAttributes.foregroundColorMode ||
                c->bold != _previousCharacterAttributes.bold ||
                c->faint != _previousCharacterAttributes.faint ||
-               !_previousForegroundColor) {
+               !_havePreviousForegroundColor) {
         // "Normal" case for uncached text color. Recompute the unprocessed color from the character.
         _previousCharacterAttributes = *c;
         _havePreviousCharacterAttributes = YES;
@@ -332,101 +521,20 @@ typedef struct {
 
     _lastUnprocessedColor = rawColor;
 
-    NSColor *result = nil;
+    vector_float4 result;
     if (needsProcessing) {
-        result = [colorMap processedTextColorForTextColor:rawColor
-                                      overBackgroundColor:backgroundColor];
+        result = VectorForColor([_colorMap processedTextColorForTextColor:ColorForVector(rawColor)
+                                                      overBackgroundColor:ColorForVector(backgroundColor)]);
     } else {
         result = rawColor;
     }
     _previousForegroundColor = result;
+    _havePreviousForegroundColor = YES;
     return result;
 }
 
-#warning TODO: This was copied form PTYTextView. Make it a class method and share it.
-- (NSColor *)colorForCode:(int)theIndex
-                    green:(int)green
-                     blue:(int)blue
-                colorMode:(ColorMode)theMode
-                     bold:(BOOL)isBold
-                    faint:(BOOL)isFaint
-             isBackground:(BOOL)isBackground {
-    iTermColorMapKey key = [self colorMapKeyForCode:theIndex
-                                              green:green
-                                               blue:blue
-                                          colorMode:theMode
-                                               bold:isBold
-                                       isBackground:isBackground];
-    NSColor *color;
-    iTermColorMap *colorMap = _colorMap;
-    if (isBackground) {
-        color = [colorMap colorForKey:key];
-    } else {
-        color = [_colorMap colorForKey:key];
-        if (isFaint) {
-            color = [color colorWithAlphaComponent:0.5];
-        }
-    }
-    return color;
-}
+#warning TODO: Lots of code was copied from PTYTextView. Make it shared.
 
-- (iTermColorMapKey)colorMapKeyForCode:(int)theIndex
-                                 green:(int)green
-                                  blue:(int)blue
-                             colorMode:(ColorMode)theMode
-                                  bold:(BOOL)isBold
-                          isBackground:(BOOL)isBackground {
-    BOOL isBackgroundForDefault = isBackground;
-    switch (theMode) {
-        case ColorModeAlternate:
-            switch (theIndex) {
-                case ALTSEM_SELECTED:
-                    if (isBackground) {
-                        return kColorMapSelection;
-                    } else {
-                        return kColorMapSelectedText;
-                    }
-                case ALTSEM_CURSOR:
-                    if (isBackground) {
-                        return kColorMapCursor;
-                    } else {
-                        return kColorMapCursorText;
-                    }
-                case ALTSEM_REVERSED_DEFAULT:
-                    isBackgroundForDefault = !isBackgroundForDefault;
-                    // Fall through.
-                case ALTSEM_DEFAULT:
-                    if (isBackgroundForDefault) {
-                        return kColorMapBackground;
-                    } else {
-                        if (isBold && _useBrightBold) {
-                            return kColorMapBold;
-                        } else {
-                            return kColorMapForeground;
-                        }
-                    }
-            }
-            break;
-        case ColorMode24bit:
-            return [iTermColorMap keyFor8bitRed:theIndex green:green blue:blue];
-        case ColorModeNormal:
-            // Render bold text as bright. The spec (ECMA-48) describes the intense
-            // display setting (esc[1m) as "bold or bright". We make it a
-            // preference.
-            if (isBold &&
-                _useBrightBold &&
-                (theIndex < 8) &&
-                !isBackground) { // Only colors 0-7 can be made "bright".
-                theIndex |= 8;  // set "bright" bit.
-            }
-            return kColorMap8bitBase + (theIndex & 0xff);
-
-        case ColorModeInvalid:
-            return kColorMapInvalid;
-    }
-    NSAssert(ok, @"Bogus color mode %d", (int)theMode);
-    return kColorMapInvalid;
-}
 
 @end
 

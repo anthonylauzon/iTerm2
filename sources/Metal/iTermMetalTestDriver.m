@@ -138,7 +138,7 @@
 
     CGSize cellSize = _cellSize;
     CGFloat scale = _scale;
-
+    [_textRenderer startNewFrame];
     for (int y = 0; y < _rows; y++) {
         NSMutableData *keysData = [NSMutableData dataWithLength:sizeof(iTermMetalGlyphKey) * _columns];
         NSMutableData *attributesData = [NSMutableData dataWithLength:sizeof(iTermMetalGlyphAttributes) * _columns];
@@ -262,8 +262,7 @@ static int george;
             DLog(@"  Completed");
             [_textRenderer releaseContext:context];
             NSTimeInterval end = [NSDate timeIntervalSinceReferenceDate];
-//            NSLog(@"Preparation: %0.3f", startDrawTime-start);
-//            NSLog(@"Rendering:   %0.3f", end-startDrawTime);
+            NSLog(@"Preparation/Rendering: %0.3f/%0.3f", startDrawTime-start, end-startDrawTime);
             DLog(@"%@ fps", @(1.0 / (end - start)));
             george--;
             self.busy = NO;

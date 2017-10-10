@@ -17,6 +17,7 @@
                       capacity:(NSInteger)capacity NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
+- (void)startNewFrame;
 - (NSInteger)findOrAllocateIndexOfLockedTextureWithKey:(const iTermMetalGlyphKey *)key
                                                 column:(int)column
                                               creation:(NSImage *(^)(int))creation;

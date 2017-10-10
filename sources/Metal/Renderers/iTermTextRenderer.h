@@ -20,11 +20,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface iTermTextRenderer : NSObject<iTermMetalCellRenderer>
 
-@property (nonatomic, strong) iTermTextureMap *globalTextureMap;
 @property (nonatomic, readonly) BOOL preparing;
 
 - (instancetype)initWithDevice:(id<MTLDevice>)device NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
+
+- (void)startNewFrame;
 
 - (void)prepareForDrawWithContext:(iTermTextRendererContext *)context
                        completion:(void (^)(void))completion;

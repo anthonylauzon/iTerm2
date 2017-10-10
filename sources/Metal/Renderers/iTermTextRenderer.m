@@ -135,6 +135,10 @@
     [self allocateNewPIUs];
 }
 
+- (void)startNewFrame {
+    [_textureMap startNewFrame];
+}
+
 - (void)setGlyphKeysData:(NSData *)glyphKeysData
           attributesData:(NSData *)attributesData
                      row:(int)row

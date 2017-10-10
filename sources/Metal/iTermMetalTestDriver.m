@@ -11,6 +11,7 @@
 #import "iTermCursorGuideRenderer.h"
 #import "iTermCursorRenderer.h"
 #import "iTermMarkRenderer.h"
+#import "iTermPreciseTimer.h"
 #import "iTermTextRenderer.h"
 #import "iTermTextureMap.h"
 
@@ -46,6 +47,13 @@
     CGFloat _scale;
 
     dispatch_queue_t _queue;
+
+    iTermPreciseTimerStats _mainThreadStats;
+    iTermPreciseTimerStats _dispatchStats;
+    iTermPreciseTimerStats _blitStats;
+    iTermPreciseTimerStats _metalSetupStats;
+    iTermPreciseTimerStats _renderingStats;
+    iTermPreciseTimerStats _preparingStats;
 }
 
 - (nullable instancetype)initWithMetalKitView:(nonnull MTKView *)mtkView {
@@ -65,6 +73,14 @@
         _commandQueue = [mtkView.device newCommandQueue];
         _queue = dispatch_queue_create("com.iterm2.metalDriver", NULL);
         [self setCellSize:CGSizeMake(30, 30) gridSize:VT100GridSizeMake(80, 25) scale:1];
+
+
+        iTermPreciseTimerStatsInit(&_mainThreadStats, "main thread");
+        iTermPreciseTimerStatsInit(&_dispatchStats, "dispatch");
+        iTermPreciseTimerStatsInit(&_preparingStats, "preparing");
+        iTermPreciseTimerStatsInit(&_blitStats, "blit");
+        iTermPreciseTimerStatsInit(&_metalSetupStats, "metal setup");
+        iTermPreciseTimerStatsInit(&_renderingStats, "rendering");
     }
 
     return self;
@@ -169,8 +185,6 @@
     return context;
 }
 
-static int george;
-
 /// Called whenever the view needs to render a frame
 - (void)drawInMTKView:(nonnull MTKView *)view {
     DLog(@"%@ %@ %@", dispatch_get_current_queue(), NSStringFromSelector(_cmd), self);
@@ -180,20 +194,24 @@ static int george;
         return;
     }
     DLog(@"Not busy");
-    NSTimeInterval start = [NSDate timeIntervalSinceReferenceDate];
+
+    iTermPreciseTimerStatsStartTimer(&_mainThreadStats);
     [dataSource metalDriverWillBeginDrawingFrame];
     self.busy = YES;
     DLog(@"Set busy=yes");
+    
+    iTermPreciseTimerStatsMeasureAndRecordTimer(&_mainThreadStats);
+    iTermPreciseTimerStatsStartTimer(&_dispatchStats);
     dispatch_async(_queue, ^{
+        iTermPreciseTimerStatsMeasureAndRecordTimer(&_dispatchStats);
+
+        iTermPreciseTimerStatsStartTimer(&_preparingStats);
         if (_cellSize.width == 0 || _cellSize.height == 0) {
             DLog(@"  abort: uninitialized");
             self.busy = NO;
             return;
         }
         assert(!_textRenderer.preparing);
-        george++;
-//        assert(george == 1);
-
         if (_sizeChanged) {
             [self.renderers enumerateObjectsUsingBlock:^(id<iTermMetalCellRenderer>  _Nonnull renderer, NSUInteger idx, BOOL * _Nonnull stop) {
                 [renderer setViewportSize:_viewportSize];
@@ -208,19 +226,19 @@ static int george;
         DLog(@"  Updating");
         iTermTextRendererContext* context = [self updateRenderersWithDataSource:dataSource];
         DLog(@"  Preparing");
+        iTermPreciseTimerStatsMeasureAndRecordTimer(&_preparingStats);
+        iTermPreciseTimerStatsStartTimer(&_blitStats);
         [_textRenderer prepareForDrawWithContext:context
                                       completion:^{
-                                          [self reallyDrawInView:view
-                                                       startTime:start
-                                                         context:context];
+                                          iTermPreciseTimerStatsMeasureAndRecordTimer(&_blitStats);
+                                          [self reallyDrawInView:view context:context];
                                       }];
     });
 }
 
 - (void)reallyDrawInView:(MTKView *)view
-               startTime:(NSTimeInterval)start
                  context:(iTermTextRendererContext *)context {
-    NSTimeInterval startDrawTime = [NSDate timeIntervalSinceReferenceDate];
+    iTermPreciseTimerStatsStartTimer(&_metalSetupStats);
     DLog(@"  Really drawing");
     id <MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
     commandBuffer.label = @"Test Driver Draw";
@@ -256,15 +274,26 @@ static int george;
         [_textRenderer drawWithRenderEncoder:renderEncoder];
 
         [_markRenderer drawWithRenderEncoder:renderEncoder];
+
+        iTermPreciseTimerStatsMeasureAndRecordTimer(&_metalSetupStats);
+        iTermPreciseTimerStatsStartTimer(&_renderingStats);
+
         [renderEncoder endEncoding];
 
         [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull buffer) {
+            iTermPreciseTimerStatsMeasureAndRecordTimer(&_renderingStats);
             DLog(@"  Completed");
             [_textRenderer releaseContext:context];
-            NSTimeInterval end = [NSDate timeIntervalSinceReferenceDate];
-            NSLog(@"Preparation/Rendering: %0.3f/%0.3f", startDrawTime-start, end-startDrawTime);
-            DLog(@"%@ fps", @(1.0 / (end - start)));
-            george--;
+
+            iTermPreciseTimerStats stats[] = {
+                _mainThreadStats,
+                _dispatchStats,
+                _preparingStats,
+                _blitStats,
+                _renderingStats
+            };
+            iTermPreciseTimerPeriodicLog(stats, sizeof(stats) / sizeof(*stats), 1, YES);
+
             self.busy = NO;
         }];
 

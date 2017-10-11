@@ -17,6 +17,17 @@
 
 #import "iTermShaderTypes.h"
 
+@implementation iTermMetalCursorInfo
+@end
+
+@interface iTermMetalDriverContext : NSObject
+@property (nonatomic, strong) iTermTextRendererContext *textContext;
+@property (nonatomic, strong) iTermMetalCursorInfo *cursorInfo;
+@end
+
+@implementation iTermMetalDriverContext
+@end
+
 @interface iTermMetalDriver()
 @property (atomic) BOOL busy;
 @end
@@ -135,10 +146,33 @@
     });
 }
 
-- (iTermTextRendererContext *)updateRenderersWithDataSource:(id<iTermMetalDriverDataSource>)dataSource {
+- (iTermMetalDriverContext *)updateRenderersWithDataSource:(id<iTermMetalDriverDataSource>)dataSource {
 //    _iteration++;
+    iTermMetalDriverContext *context = [[iTermMetalDriverContext alloc] init];
+    context.textContext = [[iTermTextRendererContext alloc] initWithQueue:_queue];
+    context.cursorInfo = [_dataSource metalDriverCursorInfo];
+    if (context.cursorInfo.cursorVisible) {
+        switch (context.cursorInfo.type) {
+            case CURSOR_UNDERLINE:
+                [_underlineCursorRenderer setCoord:context.cursorInfo.coord];
+                [_underlineCursorRenderer setColor:context.cursorInfo.cursorColor];
+                break;
+            case CURSOR_BOX:
+                [_blockCursorRenderer setCoord:context.cursorInfo.coord];
+                [_blockCursorRenderer setColor:context.cursorInfo.cursorColor];
+                break;
+            case CURSOR_VERTICAL:
+                [_barCursorRenderer setCoord:context.cursorInfo.coord];
+                [_barCursorRenderer setColor:context.cursorInfo.cursorColor];
+                break;
+            case CURSOR_DEFAULT:
+                break;
+        }
+    }
 
-//    [_blockCursorRenderer setCoord:(VT100GridCoord){ 1, 1 }];
+    if (context.cursorInfo) {
+        [_blockCursorRenderer setCoord:context.cursorInfo.coord];
+    }
 //    [_underlineCursorRenderer setCoord:(VT100GridCoord){ 2, 2 }];
 //    [_barCursorRenderer setCoord:(VT100GridCoord){ 3, 3 }];
 //    [_copyModeCursorRenderer setCoord:(VT100GridCoord){4, 4}];
@@ -155,8 +189,6 @@
 //    [_markRenderer setMarkStyle:iTermMarkStyleOther
 //                            row:((_iteration + 3) % _rows)];
 
-    iTermTextRendererContext *context = [[iTermTextRendererContext alloc] initWithQueue:_queue];
-
     CGSize cellSize = _cellSize;
     CGFloat scale = _scale;
     [_textRenderer startNewFrame];
@@ -172,7 +204,7 @@
         [_textRenderer setGlyphKeysData:keysData
                          attributesData:attributesData
                                     row:y
-                                context:context
+                                context:context.textContext
                                creation:^NSImage *(int x) {
                                    return [dataSource metalImageForCharacterAtCoord:VT100GridCoordMake(x, y)
                                                                                size:cellSize
@@ -227,11 +259,11 @@
         }
 
         DLog(@"  Updating");
-        iTermTextRendererContext* context = [self updateRenderersWithDataSource:dataSource];
+        iTermMetalDriverContext* context = [self updateRenderersWithDataSource:dataSource];
         DLog(@"  Preparing");
         iTermPreciseTimerStatsMeasureAndRecordTimer(&_preparingStats);
         iTermPreciseTimerStatsStartTimer(&_blitStats);
-        [_textRenderer prepareForDrawWithContext:context
+        [_textRenderer prepareForDrawWithContext:context.textContext
                                       completion:^{
                                           iTermPreciseTimerStatsMeasureAndRecordTimer(&_blitStats);
                                           [self reallyDrawInView:view context:context];
@@ -240,7 +272,7 @@
 }
 
 - (void)reallyDrawInView:(MTKView *)view
-                 context:(iTermTextRendererContext *)context {
+                 context:(iTermMetalDriverContext *)context {
     iTermPreciseTimerStatsStartTimer(&_metalSetupStats);
     DLog(@"  Really drawing");
     id <MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
@@ -269,9 +301,21 @@
 //        [_badgeRenderer drawWithRenderEncoder:renderEncoder];
 //        [_cursorGuideRenderer drawWithRenderEncoder:renderEncoder];
 //
-//        [_blockCursorRenderer drawWithRenderEncoder:renderEncoder];
-//        [_underlineCursorRenderer drawWithRenderEncoder:renderEncoder];
-//        [_barCursorRenderer drawWithRenderEncoder:renderEncoder];
+        if (context.cursorInfo.cursorVisible) {
+            switch (context.cursorInfo.type) {
+                case CURSOR_UNDERLINE:
+                    [_underlineCursorRenderer drawWithRenderEncoder:renderEncoder];
+                    break;
+                case CURSOR_BOX:
+                    [_blockCursorRenderer drawWithRenderEncoder:renderEncoder];
+                    break;
+                case CURSOR_VERTICAL:
+                    [_barCursorRenderer drawWithRenderEncoder:renderEncoder];
+                    break;
+                case CURSOR_DEFAULT:
+                    break;
+            }
+        }
 //        [_copyModeCursorRenderer drawWithRenderEncoder:renderEncoder];
 
         [_textRenderer drawWithRenderEncoder:renderEncoder];
@@ -285,7 +329,7 @@
             iTermPreciseTimerStatsMeasureAndRecordTimer(&_endToEnd);
 
             DLog(@"  Completed");
-            [_textRenderer releaseContext:context];
+            [_textRenderer releaseContext:context.textContext];
 
             iTermPreciseTimerStats stats[] = {
                 _mainThreadStats,

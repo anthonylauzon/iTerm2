@@ -1,9 +1,18 @@
 #import "VT100GridTypes.h"
+
+#import "iTermCursor.h"
 #include "iTermMetalGlyphKey.h"
 
 @import MetalKit;
 
 NS_ASSUME_NONNULL_BEGIN
+
+@interface iTermMetalCursorInfo : NSObject
+@property (nonatomic) BOOL cursorVisible;
+@property (nonatomic) VT100GridCoord coord;
+@property (nonatomic) ITermCursorType type;
+@property (nonatomic, strong) NSColor *cursorColor;
+@end
 
 @protocol iTermMetalDriverDataSource<NSObject>
 
@@ -14,6 +23,9 @@ NS_ASSUME_NONNULL_BEGIN
                     width:(int)width;
 
 - (void)metalDriverWillBeginDrawingFrame;
+
+- (nullable iTermMetalCursorInfo *)metalDriverCursorInfo;
+
 - (NSImage *)metalImageForCharacterAtCoord:(VT100GridCoord)coord
                                       size:(CGSize)size
                                      scale:(CGFloat)scale;

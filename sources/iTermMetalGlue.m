@@ -70,6 +70,7 @@ static NSColor *ColorForVector(vector_float4 v) {
     vector_float4 _unfocusedSelectionColor;
     CGFloat _transparencyAlpha;
     BOOL _transparencyAffectsOnlyDefaultBackgroundColor;
+    iTermMetalCursorInfo *_cursorInfo;
 }
 
 #pragma mark - iTermMetalDriverDataSource
@@ -113,6 +114,24 @@ static NSColor *ColorForVector(vector_float4 v) {
     _useNonAsciiFont = self.textView.useNonAsciiFont;
     _reverseVideo = self.textView.dataSource.terminal.reverseVideo;
     _useBrightBold = self.textView.useBrightBold;
+
+    _cursorInfo = [[iTermMetalCursorInfo alloc] init];
+#warning TODO: blinking cursor
+    if (_textView.cursorVisible && coordRange.end.y >= _textView.dataSource.numberOfScrollbackLines) {
+        const int offset = coordRange.start.y - _textView.dataSource.numberOfScrollbackLines;
+        _cursorInfo.cursorVisible = YES;
+        _cursorInfo.type = _textView.drawingHelper.cursorType;
+        _cursorInfo.coord = VT100GridCoordMake(_textView.dataSource.cursorX - 1,
+                                               _textView.dataSource.cursorY - 1 - offset);
+#warning handle frame cursor, text color, smart cursor color, and other fancy cursors of various kinds
+        _cursorInfo.cursorColor = [self backgroundColorForCursor];
+    } else {
+        _cursorInfo.cursorVisible = NO;
+    }
+}
+
+- (nullable iTermMetalCursorInfo *)metalDriverCursorInfo {
+    return _cursorInfo;
 }
 
 - (void)metalGetGlyphKeys:(iTermMetalGlyphKey *)glyphKeys
@@ -213,6 +232,28 @@ static NSColor *ColorForVector(vector_float4 v) {
         glyphKeys[x].isComplex = line[x].complexChar;
         glyphKeys[x].image = line[x].image;
         glyphKeys[x].boxDrawing = NO;
+    }
+
+    // Tweak the text color for the cell that has a box cursor.
+    if (_cursorInfo.cursorVisible &&
+        _cursorInfo.type == CURSOR_BOX &&
+        row == _cursorInfo.coord.y) {
+        vector_float4 cursorTextColor;
+        if (_reverseVideo) {
+            cursorTextColor = VectorForColor([_colorMap colorForKey:kColorMapBackground]);
+        } else {
+            cursorTextColor = [self colorForCode:ALTSEM_CURSOR
+                                           green:0
+                                            blue:0
+                                       colorMode:ColorModeAlternate
+                                            bold:NO
+                                           faint:NO
+                                    isBackground:NO];
+        }
+        attributes[_cursorInfo.coord.x].foregroundColor[0] = cursorTextColor.x;
+        attributes[_cursorInfo.coord.x].foregroundColor[1] = cursorTextColor.y;
+        attributes[_cursorInfo.coord.x].foregroundColor[2] = cursorTextColor.z;
+        attributes[_cursorInfo.coord.x].foregroundColor[3] = cursorTextColor.w;
     }
 }
 
@@ -541,6 +582,16 @@ static NSColor *ColorForVector(vector_float4 v) {
     _previousForegroundColor = result;
     _havePreviousForegroundColor = YES;
     return result;
+}
+
+- (NSColor *)backgroundColorForCursor {
+    NSColor *color;
+    if (_reverseVideo) {
+        color = [[_colorMap colorForKey:kColorMapCursorText] colorWithAlphaComponent:1.0];
+    } else {
+        color = [[_colorMap colorForKey:kColorMapCursor] colorWithAlphaComponent:1.0];
+    }
+    return [_colorMap colorByDimmingTextColor:color];
 }
 
 #warning TODO: Lots of code was copied from PTYTextView. Make it shared.

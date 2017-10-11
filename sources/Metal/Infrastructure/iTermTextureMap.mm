@@ -53,7 +53,7 @@ namespace cache {
         _max_size(max_size) {
         }
 
-        void put(const key_t& key, const value_t& value) {
+        inline void put(const key_t& key, const value_t& value) {
             auto it = _cache_items_map.find(key);
             _cache_items_list.push_front(key_value_pair_t(key, value));
             if (it != _cache_items_map.end()) {
@@ -70,7 +70,7 @@ namespace cache {
             }
         }
 
-        const value_t *get(const key_t& key) {
+        inline const value_t *get(const key_t& key) {
             auto it = _cache_items_map.find(key);
             if (it == _cache_items_map.end()) {
                 return nullptr;
@@ -80,7 +80,7 @@ namespace cache {
             }
         }
 
-        const value_t *peek(const key_t& key) {
+        inline const value_t *peek(const key_t& key) {
             auto it = _cache_items_map.find(key);
             if (it == _cache_items_map.end()) {
                 return nullptr;
@@ -89,7 +89,7 @@ namespace cache {
             }
         }
 
-        void erase(const key_t &key) {
+        inline void erase(const key_t &key) {
             auto it = _cache_items_map.find(key);
             if (it != _cache_items_map.end()) {
                 _cache_items_list.erase(it->second);
@@ -97,11 +97,11 @@ namespace cache {
             }
         }
 
-        bool exists(const key_t& key) const {
+        inline bool exists(const key_t& key) const {
             return _cache_items_map.find(key) != _cache_items_map.end();
         }
 
-        size_t size() const {
+        inline size_t size() const {
             return _cache_items_map.size();
         }
 
@@ -128,14 +128,14 @@ namespace iTerm2 {
             _repr = other._repr;
         }
 
-        bool operator==(const GlyphKey &other) const {
+        inline bool operator==(const GlyphKey &other) const {
             return (_repr.code == other._repr.code &&
                     _repr.isComplex == other._repr.isComplex &&
                     _repr.image == other._repr.image &&
                     _repr.boxDrawing == other._repr.boxDrawing);
         }
 
-        std::size_t get_hash() const {
+        inline std::size_t get_hash() const {
             const int flags = (_repr.isComplex ? 1 : 0) | (_repr.image ? 2 : 0) | (_repr.boxDrawing ? 4 : 0);
             return std::hash<int>()(_repr.code) ^ std::hash<int>()(flags);
         }
@@ -172,14 +172,14 @@ namespace iTerm2 {
         std::unordered_set<int> _indexesBlitting;
 
         // Maps an index to the lock count. Values > 0 are locked.
-        std::unordered_map<int, int> _locks;
+        std::vector<int> _locks;
 
         // Maximum number of entries.
         const int _capacity;
     public:
-        explicit TextureMap(const int capacity) : _lru(capacity), _capacity(capacity) { }
+        explicit TextureMap(const int capacity) : _lru(capacity), _locks(capacity), _capacity(capacity) { }
 
-        int get_index(const GlyphKey &key, std::unordered_set<GlyphKey> *bumped) {
+        inline int get_index(const GlyphKey &key, std::unordered_set<GlyphKey> *bumped) {
             const int *value;
             if (bumped->find(key) == bumped->end()) {
                 value = _lru.get(key);
@@ -197,7 +197,7 @@ namespace iTerm2 {
             return index;
         }
 
-        int allocate_index(const GlyphKey &key) {
+        inline int allocate_index(const GlyphKey &key) {
             const int index = _lru.size() + 1;
             assert(index <= _capacity);
             _lru.put(key, index);
@@ -205,7 +205,7 @@ namespace iTerm2 {
             return index;
         }
 
-        void unlock(const int &index) {
+        inline void unlock(const int &index) {
             _locks[index]--;
         }
 

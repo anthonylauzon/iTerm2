@@ -32,7 +32,6 @@ typedef struct {
 } iTermTextColorKey;
 
 typedef struct {
-    NSRange range;
     int bgColor;
     int bgGreen;
     int bgBlue;
@@ -127,7 +126,7 @@ static NSColor *ColorForVector(vector_float4 v) {
     iTermTextColorKey keys[2];
     iTermTextColorKey *currentColorKey = &keys[0];
     iTermTextColorKey *previousColorKey = &keys[1];
-    vector_float4 lastUnprocessed;
+    iTermBackgroundColorKey lastBackgroundKey;
 
     for (int x = 0; x < width; x++) {
         BOOL selected = [selectedIndexes containsIndex:x];
@@ -138,7 +137,6 @@ static NSColor *ColorForVector(vector_float4 v) {
 
         // Background colors
         iTermBackgroundColorKey backgroundKey = {
-            .range = { x, 1 },
             .bgColor = line[x].backgroundColor,
             .bgGreen = line[x].bgGreen,
             .bgBlue = line[x].bgBlue,
@@ -146,14 +144,20 @@ static NSColor *ColorForVector(vector_float4 v) {
             .selected = selected,
             .isMatch = findMatch,
         };
-        vector_float4 unprocessed = [self unprocessedColorForBackgroundColorKey:&backgroundKey];
-        if (x > 1 && !memcmp(&unprocessed, &lastUnprocessed, sizeof(unprocessed))) {
+        if (x > 1 &&
+            backgroundKey.bgColor == lastBackgroundKey.bgColor &&
+            backgroundKey.bgGreen == lastBackgroundKey.bgGreen &&
+            backgroundKey.bgBlue == lastBackgroundKey.bgBlue &&
+            backgroundKey.bgColorMode == lastBackgroundKey.bgColorMode &&
+            backgroundKey.selected == lastBackgroundKey.selected &&
+            backgroundKey.isMatch == lastBackgroundKey.isMatch) {
             background[x] = background[x - 1];
         } else {
-            lastUnprocessed = unprocessed;
+            vector_float4 unprocessed = [self unprocessedColorForBackgroundColorKey:&backgroundKey];
             // The unprocessed color is needed for minimum contrast computation for text color.
             background[x] = [_colorMap fastProcessedBackgroundColorForBackgroundColor:unprocessed];
         }
+        lastBackgroundKey = backgroundKey;
 
         // Foreground colors
         // Build up a compact key describing all the inputs to a text color

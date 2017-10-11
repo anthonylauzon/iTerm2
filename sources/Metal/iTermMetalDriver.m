@@ -3,7 +3,7 @@
 
 #import "DebugLogging.h"
 #import "iTermTextureArray.h"
-#import "iTermMetalTestDriver.h"
+#import "iTermMetalDriver.h"
 #import "iTermBackgroundImageRenderer.h"
 #import "iTermBackgroundColorRenderer.h"
 #import "iTermBadgeRenderer.h"
@@ -11,16 +11,17 @@
 #import "iTermCursorGuideRenderer.h"
 #import "iTermCursorRenderer.h"
 #import "iTermMarkRenderer.h"
+#import "iTermPreciseTimer.h"
 #import "iTermTextRenderer.h"
 #import "iTermTextureMap.h"
 
 #import "iTermShaderTypes.h"
 
-@interface iTermMetalTestDriver()
+@interface iTermMetalDriver()
 @property (atomic) BOOL busy;
 @end
 
-@implementation iTermMetalTestDriver {
+@implementation iTermMetalDriver {
     iTermBackgroundImageRenderer *_backgroundImageRenderer;
     iTermBackgroundColorRenderer *_backgroundColorRenderer;
     iTermTextRenderer *_textRenderer;
@@ -46,6 +47,16 @@
     CGFloat _scale;
 
     dispatch_queue_t _queue;
+
+    iTermPreciseTimerStats _mainThreadStats;
+    iTermPreciseTimerStats _dispatchStats;
+    iTermPreciseTimerStats _blitStats;
+    iTermPreciseTimerStats _metalSetupStats;
+    iTermPreciseTimerStats _renderingStats;
+    iTermPreciseTimerStats _preparingStats;
+    iTermPreciseTimerStats _endToEnd;
+    int _dropped;
+    int _total;
 }
 
 - (nullable instancetype)initWithMetalKitView:(nonnull MTKView *)mtkView {
@@ -65,6 +76,16 @@
         _commandQueue = [mtkView.device newCommandQueue];
         _queue = dispatch_queue_create("com.iterm2.metalDriver", NULL);
         [self setCellSize:CGSizeMake(30, 30) gridSize:VT100GridSizeMake(80, 25) scale:1];
+
+
+        iTermPreciseTimerStatsInit(&_mainThreadStats, "main thread");
+        iTermPreciseTimerStatsInit(&_dispatchStats, "dispatch");
+        iTermPreciseTimerStatsInit(&_preparingStats, "preparing");
+        iTermPreciseTimerStatsInit(&_blitStats, "blit");
+        iTermPreciseTimerStatsInit(&_metalSetupStats, "metal setup");
+        iTermPreciseTimerStatsInit(&_renderingStats, "rendering");
+        iTermPreciseTimerStatsInit(&_endToEnd, "end to end");
+
     }
 
     return self;
@@ -114,7 +135,7 @@
     });
 }
 
-- (iTermTextRendererContext *)updateRenderersWithDataSource:(id<iTermMetalTestDriverDataSource>)dataSource {
+- (iTermTextRendererContext *)updateRenderersWithDataSource:(id<iTermMetalDriverDataSource>)dataSource {
 //    _iteration++;
 
 //    [_blockCursorRenderer setCoord:(VT100GridCoord){ 1, 1 }];
@@ -138,59 +159,62 @@
 
     CGSize cellSize = _cellSize;
     CGFloat scale = _scale;
+    [_textRenderer startNewFrame];
     for (int y = 0; y < _rows; y++) {
-        for (int x = 0; x < _columns; x++) {
-            iTermMetalGlyphAttributes attributes;
-            iTermMetalGlyphKey c = [_dataSource metalCharacterAtScreenCoord:VT100GridCoordMake(x, y) attributes:&attributes];
-            [_textRenderer setCharacter:&c
-                             attributes:&attributes
-                                  coord:(VT100GridCoord){x,y}
+        NSMutableData *keysData = [NSMutableData dataWithLength:sizeof(iTermMetalGlyphKey) * _columns];
+        NSMutableData *attributesData = [NSMutableData dataWithLength:sizeof(iTermMetalGlyphAttributes) * _columns];
+        NSMutableData *backgroundColorData = [NSMutableData dataWithLength:sizeof(vector_float4) * _columns];
+        [_dataSource metalGetGlyphKeys:keysData.mutableBytes
+                            attributes:attributesData.mutableBytes
+                            background:backgroundColorData.mutableBytes
+                                   row:y
+                                 width:_columns];
+        [_textRenderer setGlyphKeysData:keysData
+                         attributesData:attributesData
+                                    row:y
                                 context:context
-                               creation:^NSImage * _Nonnull{
+                               creation:^NSImage *(int x) {
                                    return [dataSource metalImageForCharacterAtCoord:VT100GridCoordMake(x, y)
                                                                                size:cellSize
                                                                               scale:scale];
                                }];
-        }
+        [_backgroundColorRenderer setColorData:backgroundColorData
+                                           row:y
+                                         width:_columns];
     }
 
-//    i = 0;
-//    for (int y = 0; y < _rows; y++) {
-//        for (int x = 0; x < _columns; x++) {
-//            int j = i + _iteration / 10;
-//            [_backgroundColorRenderer setColor:(vector_float4){ sin(j), sin(j + M_PI_2), sin(j + M_PI), ((j/60) % 2) ? 1 : 0 }
-//                                         coord:(VT100GridCoord){x, y}];
-//            i++;
-//        }
-//    }
     return context;
 }
 
-static int george;
-
 /// Called whenever the view needs to render a frame
 - (void)drawInMTKView:(nonnull MTKView *)view {
-    DLog(@"%@ %@ %@", dispatch_get_current_queue(), NSStringFromSelector(_cmd), self);
-    id<iTermMetalTestDriverDataSource> dataSource = _dataSource;
+    id<iTermMetalDriverDataSource> dataSource = _dataSource;
+    _total++;
     if (self.busy) {
-        NSLog(@"  abort: busy");
+        NSLog(@"  abort: busy (dropped %@%%)", @((_dropped * 100)/_total));
+        _dropped++;
         return;
     }
     DLog(@"Not busy");
-    NSTimeInterval start = [NSDate timeIntervalSinceReferenceDate];
+
+    iTermPreciseTimerStatsStartTimer(&_endToEnd);
+    iTermPreciseTimerStatsStartTimer(&_mainThreadStats);
     [dataSource metalDriverWillBeginDrawingFrame];
     self.busy = YES;
     DLog(@"Set busy=yes");
+    
+    iTermPreciseTimerStatsMeasureAndRecordTimer(&_mainThreadStats);
+    iTermPreciseTimerStatsStartTimer(&_dispatchStats);
     dispatch_async(_queue, ^{
+        iTermPreciseTimerStatsMeasureAndRecordTimer(&_dispatchStats);
+
+        iTermPreciseTimerStatsStartTimer(&_preparingStats);
         if (_cellSize.width == 0 || _cellSize.height == 0) {
             DLog(@"  abort: uninitialized");
             self.busy = NO;
             return;
         }
         assert(!_textRenderer.preparing);
-        george++;
-//        assert(george == 1);
-
         if (_sizeChanged) {
             [self.renderers enumerateObjectsUsingBlock:^(id<iTermMetalCellRenderer>  _Nonnull renderer, NSUInteger idx, BOOL * _Nonnull stop) {
                 [renderer setViewportSize:_viewportSize];
@@ -205,27 +229,27 @@ static int george;
         DLog(@"  Updating");
         iTermTextRendererContext* context = [self updateRenderersWithDataSource:dataSource];
         DLog(@"  Preparing");
+        iTermPreciseTimerStatsMeasureAndRecordTimer(&_preparingStats);
+        iTermPreciseTimerStatsStartTimer(&_blitStats);
         [_textRenderer prepareForDrawWithContext:context
                                       completion:^{
-                                          [self reallyDrawInView:view
-                                                       startTime:start
-                                                         context:context];
+                                          iTermPreciseTimerStatsMeasureAndRecordTimer(&_blitStats);
+                                          [self reallyDrawInView:view context:context];
                                       }];
     });
 }
 
 - (void)reallyDrawInView:(MTKView *)view
-               startTime:(NSTimeInterval)start
                  context:(iTermTextRendererContext *)context {
-    NSTimeInterval startDrawTime = [NSDate timeIntervalSinceReferenceDate];
+    iTermPreciseTimerStatsStartTimer(&_metalSetupStats);
     DLog(@"  Really drawing");
     id <MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
-    commandBuffer.label = @"Test Driver Draw";
+    commandBuffer.label = @"Draw Terminal";
 
     MTLRenderPassDescriptor *renderPassDescriptor = view.currentRenderPassDescriptor;
     if (renderPassDescriptor != nil) {
         id <MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
-        renderEncoder.label = @"TerminalRenderEncoder";
+        renderEncoder.label = @"Render Terminal";
         view.currentDrawable.texture.label = @"Drawable";
 
         // Set the region of the drawable to which we'll draw.
@@ -240,7 +264,7 @@ static int george;
         [renderEncoder setViewport:viewport];
 
 //        [_backgroundImageRenderer drawWithRenderEncoder:renderEncoder];
-//        [_backgroundColorRenderer drawWithRenderEncoder:renderEncoder];
+        [_backgroundColorRenderer drawWithRenderEncoder:renderEncoder];
 //        [_broadcastStripesRenderer drawWithRenderEncoder:renderEncoder];
 //        [_badgeRenderer drawWithRenderEncoder:renderEncoder];
 //        [_cursorGuideRenderer drawWithRenderEncoder:renderEncoder];
@@ -253,22 +277,36 @@ static int george;
         [_textRenderer drawWithRenderEncoder:renderEncoder];
 
         [_markRenderer drawWithRenderEncoder:renderEncoder];
+
         [renderEncoder endEncoding];
 
         [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull buffer) {
+            iTermPreciseTimerStatsMeasureAndRecordTimer(&_renderingStats);
+            iTermPreciseTimerStatsMeasureAndRecordTimer(&_endToEnd);
+
             DLog(@"  Completed");
             [_textRenderer releaseContext:context];
-            NSTimeInterval end = [NSDate timeIntervalSinceReferenceDate];
-            NSLog(@"Preparation: %0.3f", startDrawTime-start);
-            NSLog(@"Rendering:   %0.3f", end-startDrawTime);
-            DLog(@"%@ fps", @(1.0 / (end - start)));
-            george--;
+
+            iTermPreciseTimerStats stats[] = {
+                _mainThreadStats,
+                _dispatchStats,
+                _preparingStats,
+                _blitStats,
+                _renderingStats,
+                _endToEnd
+            };
+            iTermPreciseTimerPeriodicLog(stats, sizeof(stats) / sizeof(*stats), 1, YES);
+
             self.busy = NO;
         }];
 
         [commandBuffer presentDrawable:view.currentDrawable];
+        [commandBuffer commit];
+        iTermPreciseTimerStatsMeasureAndRecordTimer(&_metalSetupStats);
+        iTermPreciseTimerStatsStartTimer(&_renderingStats);
+    } else {
+        [commandBuffer commit];
     }
-    [commandBuffer commit];
 }
 
 @end

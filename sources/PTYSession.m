@@ -24,7 +24,7 @@
 #import "iTermKeyBindingMgr.h"
 #import "iTermKeyLabels.h"
 #import "iTermMetalGlue.h"
-#import "iTermMetalTestDriver.h"
+#import "iTermMetalDriver.h"
 #import "iTermMenuOpener.h"
 #import "iTermMouseCursor.h"
 #import "iTermPasteHelper.h"

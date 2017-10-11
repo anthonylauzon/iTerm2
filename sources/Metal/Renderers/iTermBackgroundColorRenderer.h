@@ -7,7 +7,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable instancetype)initWithDevice:(id<MTLDevice>)device NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
-- (void)setColor:(vector_float4)color coord:(VT100GridCoord)coord;
+- (void)setColorData:(NSData *)colorData
+                 row:(int)row
+               width:(int)width;
 
 @end
 

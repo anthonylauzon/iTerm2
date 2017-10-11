@@ -5,10 +5,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@protocol iTermMetalTestDriverDataSource<NSObject>
+@protocol iTermMetalDriverDataSource<NSObject>
 
-- (iTermMetalGlyphKey)metalCharacterAtScreenCoord:(VT100GridCoord)coord
-                                       attributes:(iTermMetalGlyphAttributes *)attributes;
+- (void)metalGetGlyphKeys:(iTermMetalGlyphKey *)glyphKeys
+               attributes:(iTermMetalGlyphAttributes *)attributes
+               background:(vector_float4 *)backgrounds
+                      row:(int)row
+                    width:(int)width;
 
 - (void)metalDriverWillBeginDrawingFrame;
 - (NSImage *)metalImageForCharacterAtCoord:(VT100GridCoord)coord
@@ -19,9 +22,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Our platform independent render class
 NS_CLASS_AVAILABLE(10_11, NA)
-@interface iTermMetalTestDriver : NSObject<MTKViewDelegate>
+@interface iTermMetalDriver : NSObject<MTKViewDelegate>
 
-@property (nullable, nonatomic, weak) id<iTermMetalTestDriverDataSource> dataSource;
+@property (nullable, nonatomic, weak) id<iTermMetalDriverDataSource> dataSource;
 
 - (nullable instancetype)initWithMetalKitView:(nonnull MTKView *)mtkView;
 - (void)setCellSize:(CGSize)cellSize gridSize:(VT100GridSize)gridSize scale:(CGFloat)scale;

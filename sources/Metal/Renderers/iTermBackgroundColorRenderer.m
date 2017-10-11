@@ -34,6 +34,7 @@
 }
 
 - (void)drawWithRenderEncoder:(id<MTLRenderCommandEncoder>)renderEncoder {
+    [_cellRenderer.pius didModifyRange:NSMakeRange(0, _cellRenderer.pius.length)];
     [_cellRenderer drawPipeline:_cellRenderer.pipelineState
                   renderEncoder:renderEncoder
                numberOfVertices:6
@@ -44,10 +45,14 @@
                        textures:@{} ];
 }
 
-- (void)setColor:(vector_float4)color coord:(VT100GridCoord)coord {
-    iTermBackgroundColorPIU piu = *(iTermBackgroundColorPIU *)[_cellRenderer piuForCoord:coord];
-    piu.color = color;
-    [_cellRenderer setValue:&piu coord:coord];
+- (void)setColorData:(NSData *)colorData
+                 row:(int)row
+               width:(int)width {
+    iTermBackgroundColorPIU *pius = (iTermBackgroundColorPIU *)[_cellRenderer piuForCoord:VT100GridCoordMake(0, row)];
+    const vector_float4 *colors = (const vector_float4 *)colorData.bytes;
+    for (int x = 0; x < width; x++) {
+        pius[x].color = colors[x];
+    }
 }
 
 #pragma mark - Private

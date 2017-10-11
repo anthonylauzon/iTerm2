@@ -80,6 +80,15 @@ namespace cache {
             }
         }
 
+        const value_t *peek(const key_t& key) {
+            auto it = _cache_items_map.find(key);
+            if (it == _cache_items_map.end()) {
+                return nullptr;
+            } else {
+                return &it->second->second;
+            }
+        }
+
         void erase(const key_t &key) {
             auto it = _cache_items_map.find(key);
             if (it != _cache_items_map.end()) {
@@ -112,7 +121,7 @@ namespace iTerm2 {
         GlyphKey();
 
     public:
-        explicit GlyphKey(iTermMetalGlyphKey *repr) : _repr(*repr) { }
+        explicit GlyphKey(const iTermMetalGlyphKey *repr) : _repr(*repr) { }
 
         // Copy constructor
         GlyphKey(const GlyphKey &other) {
@@ -170,8 +179,14 @@ namespace iTerm2 {
     public:
         explicit TextureMap(const int capacity) : _lru(capacity), _capacity(capacity) { }
 
-        int get_index(const GlyphKey &key) {
-            const int *value = _lru.get(key);
+        int get_index(const GlyphKey &key, std::unordered_set<GlyphKey> *bumped) {
+            const int *value;
+            if (bumped->find(key) == bumped->end()) {
+                value = _lru.get(key);
+                bumped->insert(key);
+            } else {
+                value = _lru.peek(key);
+            }
             int index;
             if (value == nullptr) {
                 return -1;
@@ -222,6 +237,7 @@ namespace iTerm2 {
 @implementation iTermTextureMap {
     id<MTLDevice> _device;
     iTerm2::TextureMap *_textureMap;
+    std::unordered_set<iTerm2::GlyphKey> *_bumped;
     id<MTLCommandQueue> _commandQueue;
 }
 
@@ -242,24 +258,31 @@ namespace iTerm2 {
                                                           device:_device];
         _commandQueue = [_device newCommandQueue];
         _textureMap = new iTerm2::TextureMap(capacity);
+        _bumped = new std::unordered_set<iTerm2::GlyphKey>();
     }
     return self;
 }
 
 - (void)dealloc {
     delete _textureMap;
+    delete _bumped;
 }
 
-- (NSInteger)findOrAllocateIndexOfLockedTextureWithKey:(iTermMetalGlyphKey *)key
-                                              creation:(NSImage *(^)(void))creation {
+- (void)startNewFrame {
+    _bumped->clear();
+}
+
+- (NSInteger)findOrAllocateIndexOfLockedTextureWithKey:(const iTermMetalGlyphKey *)key
+                                                column:(int)column
+                                              creation:(NSImage *(^)(int))creation {
     const iTerm2::GlyphKey glyphKey(key);
 
-    int index = _textureMap->get_index(glyphKey);
+    int index = _textureMap->get_index(glyphKey, _bumped);
     if (index >= 0) {
         DLog(@"%@: lock existing texture %@", self.label, @(index));
         return index;
     } else {
-        NSImage *image = creation();
+        NSImage *image = creation(column);
         if (image != nil) {
             index = _textureMap->allocate_index(glyphKey);
             DLog(@"%@: create and stage new texture %@", self.label, @(index));

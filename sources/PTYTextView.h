@@ -329,6 +329,8 @@ typedef void (^PTYTextViewDrawingHookBlock)(iTermTextDrawingHelper *);
 // Helps drawing text and background.
 @property (nonatomic, readonly) iTermTextDrawingHelper *drawingHelper;
 
+@property (nonatomic, readonly) double transparencyAlpha;
+
 // Returns the size of a cell for a given font. hspace and vspace are multipliers and the width
 // and height.
 + (NSSize)charSizeForFont:(NSFont*)aFont

@@ -7,6 +7,7 @@
 //
 
 #import <Cocoa/Cocoa.h>
+#include <simd/vector_types.h>
 
 // This would be an enum except lldb doesn't handle enums very well.
 // (lldb) po [_colorMap colorForKey:kColorMapBackground]
@@ -91,6 +92,7 @@ extern const int kColorMap24bitBase;
 - (NSColor *)processedTextColorForTextColor:(NSColor *)textColor
                         overBackgroundColor:(NSColor*)backgroundColor;
 - (NSColor *)processedBackgroundColorForBackgroundColor:(NSColor *)color;
+- (vector_float4)fastProcessedBackgroundColorForBackgroundColor:(vector_float4)backgroundColor;
 - (NSColor *)colorByMutingColor:(NSColor *)color;
 - (NSColor *)colorByDimmingTextColor:(NSColor *)color;
 

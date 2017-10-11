@@ -127,6 +127,7 @@ static NSColor *ColorForVector(vector_float4 v) {
     iTermTextColorKey keys[2];
     iTermTextColorKey *currentColorKey = &keys[0];
     iTermTextColorKey *previousColorKey = &keys[1];
+    vector_float4 lastUnprocessed;
 
     for (int x = 0; x < width; x++) {
         BOOL selected = [selectedIndexes containsIndex:x];
@@ -146,8 +147,13 @@ static NSColor *ColorForVector(vector_float4 v) {
             .isMatch = findMatch,
         };
         vector_float4 unprocessed = [self unprocessedColorForBackgroundColorKey:&backgroundKey];
-        // The unprocessed color is needed for minimum contrast computation for text color.
-        background[x] = VectorForColor([_colorMap processedBackgroundColorForBackgroundColor:ColorForVector(unprocessed)]);
+        if (x > 1 && !memcmp(&unprocessed, &lastUnprocessed, sizeof(unprocessed))) {
+            background[x] = background[x - 1];
+        } else {
+            lastUnprocessed = unprocessed;
+            // The unprocessed color is needed for minimum contrast computation for text color.
+            background[x] = [_colorMap fastProcessedBackgroundColorForBackgroundColor:unprocessed];
+        }
 
         // Foreground colors
         // Build up a compact key describing all the inputs to a text color

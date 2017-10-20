@@ -1355,6 +1355,8 @@
 		A647E3AE18C3588800450FA1 /* VT100ControlParser.h in Headers */ = {isa = PBXBuildFile; fileRef = A647E3AC18C3588800450FA1 /* VT100ControlParser.h */; };
 		A647E3B718C5884600450FA1 /* iTermObjectPool.h in Headers */ = {isa = PBXBuildFile; fileRef = A647E3B518C5884600450FA1 /* iTermObjectPool.h */; };
 		A656AE4C1DBBE1CE00CE8448 /* libaprutil-1.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A656AE4B1DBBE1CE00CE8448 /* libaprutil-1.tbd */; };
+		A656E9951F99C5FB00158128 /* iTermSubpixelModelBuilder.h in Headers */ = {isa = PBXBuildFile; fileRef = A656E9931F99C5FB00158128 /* iTermSubpixelModelBuilder.h */; };
+		A656E9961F99C60300158128 /* iTermSubpixelModelBuilder.mm in Sources */ = {isa = PBXBuildFile; fileRef = A656E9921F99C5FB00158128 /* iTermSubpixelModelBuilder.mm */; };
 		A658716A1D85E6700061CEEE /* PFMoveApplication.h in Headers */ = {isa = PBXBuildFile; fileRef = A65871681D85E6700061CEEE /* PFMoveApplication.h */; };
 		A658716B1D85E6750061CEEE /* PFMoveApplication.m in Sources */ = {isa = PBXBuildFile; fileRef = A65871671D85E6700061CEEE /* PFMoveApplication.m */; };
 		A65943CB1F83382B00598B1E /* iTermMetalClipView.h in Headers */ = {isa = PBXBuildFile; fileRef = A65943C91F83382B00598B1E /* iTermMetalClipView.h */; };
@@ -3406,6 +3408,8 @@
 		A64AB26219B97B670033DB9C /* iTerm2ForApplescriptTesting-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "iTerm2ForApplescriptTesting-Info.plist"; sourceTree = "<group>"; };
 		A656AE4B1DBBE1CE00CE8448 /* libaprutil-1.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libaprutil-1.tbd"; path = "usr/lib/libaprutil-1.tbd"; sourceTree = SDKROOT; };
 		A656E9671F8C994200158128 /* iTermMetalGlyphKey.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = iTermMetalGlyphKey.h; sourceTree = "<group>"; };
+		A656E9921F99C5FB00158128 /* iTermSubpixelModelBuilder.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = iTermSubpixelModelBuilder.mm; path = Metal/Infrastructure/iTermSubpixelModelBuilder.mm; sourceTree = "<group>"; };
+		A656E9931F99C5FB00158128 /* iTermSubpixelModelBuilder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = iTermSubpixelModelBuilder.h; path = Metal/Infrastructure/iTermSubpixelModelBuilder.h; sourceTree = "<group>"; };
 		A65871671D85E6700061CEEE /* PFMoveApplication.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = PFMoveApplication.m; path = LetsMove/PFMoveApplication.m; sourceTree = "<group>"; };
 		A65871681D85E6700061CEEE /* PFMoveApplication.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = PFMoveApplication.h; path = LetsMove/PFMoveApplication.h; sourceTree = "<group>"; };
 		A65943C91F83382B00598B1E /* iTermMetalClipView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = iTermMetalClipView.h; path = Metal/Support/iTermMetalClipView.h; sourceTree = "<group>"; };
@@ -5487,6 +5491,8 @@
 		A67960891F81FC8C008A42BC /* Infrastructure */ = {
 			isa = PBXGroup;
 			children = (
+				A656E9931F99C5FB00158128 /* iTermSubpixelModelBuilder.h */,
+				A656E9921F99C5FB00158128 /* iTermSubpixelModelBuilder.mm */,
 				A679608D1F81FC95008A42BC /* iTermMetalCellRenderer.h */,
 				A679608A1F81FC94008A42BC /* iTermMetalRenderer.h */,
 				A679608C1F81FC95008A42BC /* iTermTextureArray.h */,
@@ -6904,6 +6910,7 @@
 				A6E7475C188C6731005355CF /* iTermExposeGridView.h in Headers */,
 				1D4AE8FE14343A760092EB49 /* iTermSemanticHistoryPrefsController.h in Headers */,
 				1DEDC8FD1451F67D004F1615 /* SessionTitleView.h in Headers */,
+				A656E9951F99C5FB00158128 /* iTermSubpixelModelBuilder.h in Headers */,
 				1DFA9D7018F3A30F008ADC98 /* PointerPreferencesViewController.h in Headers */,
 				A6FCB60A1C6714230019184E /* iTermFullScreenWindowManager.h in Headers */,
 				5ECE005F1454E59B004861E9 /* PseudoTerminalRestorer.h in Headers */,
@@ -8662,6 +8669,7 @@
 				A67960E41F8201A1008A42BC /* iTermMetalDriver.m in Sources */,
 				A66719641DCE3772000CE608 /* iTermSocket.m in Sources */,
 				A67960D41F81FCBB008A42BC /* iTermCursorGuideRenderer.m in Sources */,
+				A656E9961F99C60300158128 /* iTermSubpixelModelBuilder.mm in Sources */,
 				A65943CC1F83382B00598B1E /* iTermMetalClipView.m in Sources */,
 				A67960CF1F81FCB6008A42BC /* iTermTextureMap.mm in Sources */,
 				A62A1F771E711BC000363EE9 /* iTermHelpMessageViewController.m in Sources */,

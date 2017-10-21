@@ -187,26 +187,26 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)drawWithRenderEncoder:(id<MTLRenderCommandEncoder>)renderEncoder {
     iTermCursorDescription description = {
-            .origin = {
-                _cellRenderer.cellSize.width * _coord.x - _cellRenderer.cellSize.width / 2,
-                _cellRenderer.cellSize.height * (_cellRenderer.gridSize.height - _coord.y - 1),
-            },
-        };
-        id<MTLBuffer> descriptionBuffer = [_cellRenderer.device newBufferWithBytes:&description
-                                                                            length:sizeof(description)
-                                                                           options:MTLResourceStorageModeManaged];
+        .origin = {
+            _cellRenderer.cellSize.width * _coord.x - _cellRenderer.cellSize.width / 2,
+            _cellRenderer.cellSize.height * (_cellRenderer.gridSize.height - _coord.y - 1),
+        },
+    };
+    id<MTLBuffer> descriptionBuffer = [_cellRenderer.device newBufferWithBytes:&description
+                                                                        length:sizeof(description)
+                                                                       options:MTLResourceStorageModeManaged];
     if (_texture == nil) {
         _texture = [_cellRenderer textureFromImage:[self newImage]];
     }
-        [_cellRenderer drawPipeline:_cellRenderer.pipelineState
-                      renderEncoder:renderEncoder
-                   numberOfVertices:6
-                       numberOfPIUs:_cellRenderer.gridSize.width
-                      vertexBuffers:@{ @(iTermVertexInputIndexVertices): _cellRenderer.vertexBuffer,
-                                       @(iTermVertexInputIndexCursorDescription): descriptionBuffer,
-                                       @(iTermVertexInputIndexOffset): _cellRenderer.offsetBuffer }
-                           textures:@{ @(iTermTextureIndexPrimary): _texture } ];
-    }
+    [_cellRenderer drawPipeline:_cellRenderer.pipelineState
+                  renderEncoder:renderEncoder
+               numberOfVertices:6
+                   numberOfPIUs:_cellRenderer.gridSize.width
+                  vertexBuffers:@{ @(iTermVertexInputIndexVertices): _cellRenderer.vertexBuffer,
+                                   @(iTermVertexInputIndexCursorDescription): descriptionBuffer,
+                                   @(iTermVertexInputIndexOffset): _cellRenderer.offsetBuffer }
+                       textures:@{ @(iTermTextureIndexPrimary): _texture } ];
+}
 
 @end
 

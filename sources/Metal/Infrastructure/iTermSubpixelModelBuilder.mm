@@ -28,11 +28,43 @@ static NSString *const iTermSubpixelModelString = @"O";
     NSMutableData *_table;
 }
 
-- (instancetype)init {
++ (NSUInteger)keyForColor:(vector_float4)color {
+    const NSUInteger r = color.x * 255;
+    const NSUInteger g = color.y * 255;
+    const NSUInteger b = color.z * 255;
+    const NSUInteger a = color.w * 255;
+    return (r << 24) | (g << 16) | (b << 8) | a;
+}
+
++ (NSUInteger)keyForForegroundColor:(vector_float4)foregroundColor
+                    backgroundColor:(vector_float4)backgroundColor {
+    return ([self keyForColor:foregroundColor] << 32) | [self keyForColor:backgroundColor];
+}
+
+- (instancetype)initWithForegroundColor:(vector_float4)foregroundColor
+                        backgroundColor:(vector_float4)backgroundColor {
     if (self) {
         _table = [NSMutableData dataWithLength:4 * 256 * sizeof(unsigned short)];
+        _foregroundColor = foregroundColor;
+        _backgroundColor = backgroundColor;
     }
     return self;
+}
+
+- (NSString *)description {
+    return [NSString stringWithFormat:@"<%@: %p fg=(%f, %f, %f) bg=(%f, %f, %f)>",
+                       NSStringFromClass(self.class), self,
+                       _foregroundColor.x,
+                       _foregroundColor.y,
+                       _foregroundColor.z,
+                       _backgroundColor.x,
+                       _backgroundColor.y,
+                       _backgroundColor.z];
+}
+
+- (NSUInteger)key {
+    return [iTermSubpixelModel keyForForegroundColor:_foregroundColor
+                                     backgroundColor:_backgroundColor];
 }
 
 - (NSString *)dump {
@@ -181,17 +213,10 @@ static NSString *const iTermSubpixelModelString = @"O";
     return self;
 }
 
-- (unsigned long long)keyForColor:(vector_float4)color {
-    const unsigned char r = color.x * 255;
-    const unsigned char g = color.y * 255;
-    const unsigned char b = color.z * 255;
-    const unsigned char a = color.w * 255;
-    return (r << 24) | (g << 16) | (b << 8) | a;
-}
-
 - (iTermSubpixelModel *)modelForForegoundColor:(vector_float4)foregroundColor
                                backgroundColor:(vector_float4)backgroundColor {
-    unsigned long long key = ([self keyForColor:foregroundColor] << 32) | [self keyForColor:backgroundColor];
+    NSUInteger key = [iTermSubpixelModel keyForForegroundColor:foregroundColor
+                                               backgroundColor:backgroundColor];
     iTermSubpixelModel *cachedModel = _models[@(key)];
     if (cachedModel) {
         return cachedModel;
@@ -226,14 +251,14 @@ static NSString *const iTermSubpixelModelString = @"O";
         blueMap[refBlue] = modelBlue;
     }
 
-    iTermSubpixelModel *model = [[iTermSubpixelModel alloc] init];
+    iTermSubpixelModel *model = [[iTermSubpixelModel alloc] initWithForegroundColor:foregroundColor
+                                                                    backgroundColor:backgroundColor];
     DLog(@"Interpolate red values");
     [self interpolateValuesInMap:&redMap toUShortArrayInData:model.mutableTable offset:0 stride:4];
     DLog(@"Interpolate green values");
     [self interpolateValuesInMap:&greenMap toUShortArrayInData:model.mutableTable offset:1 stride:4];
     DLog(@"Interpolate blue values");
     [self interpolateValuesInMap:&blueMap toUShortArrayInData:model.mutableTable offset:2 stride:4];
-
     _models[@(key)] = model;
     return model;
 }
@@ -268,7 +293,7 @@ namespace iTerm2 {
 }
 
 - (void)interpolateValuesInMap:(std::map<unsigned char, unsigned char> *)modelToReferenceMap
-             toUShortArrayInData:(NSMutableData *)destinationData
+           toUShortArrayInData:(NSMutableData *)destinationData
                         offset:(size_t)offset
                         stride:(size_t)stride {
     int previousModelColor = -1;

@@ -17,7 +17,13 @@
 // foreground and background color should have a separate model. Ignore the A, it's always 0.
 // Each value is an unsigned short (2 bytes)
 @property (nonatomic, readonly) NSData *table;
+@property (nonatomic, readonly) vector_float4 foregroundColor;
+@property (nonatomic, readonly) vector_float4 backgroundColor;
 
++ (NSUInteger)keyForForegroundColor:(vector_float4)foregroundColor
+                    backgroundColor:(vector_float4)backgroundColor;
+
+- (NSUInteger)key;
 - (NSString *)dump;
 
 @end

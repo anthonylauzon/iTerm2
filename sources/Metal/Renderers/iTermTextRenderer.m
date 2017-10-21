@@ -1,5 +1,6 @@
 #import "iTermTextRenderer.h"
 
+#import "DebugLogging.h"
 #import "iTermMetalCellRenderer.h"
 #import "iTermSubpixelModelBuilder.h"
 #import "iTermTextureArray.h"
@@ -63,7 +64,7 @@
 - (void)setCellSize:(CGSize)cellSize {
     assert(cellSize.width > 0);
     assert(cellSize.height > 0);
-    NSLog(@"Cell size is %@", NSStringFromSize(cellSize));
+    DLog(@"Cell size is %@", NSStringFromSize(cellSize));
     [_cellRenderer setCellSize:cellSize];
     _cellRenderer.vertexBuffer = [_cellRenderer newQuadOfSize:_cellRenderer.cellSize];
 }
@@ -209,31 +210,30 @@
 }
 
 - (int)colorModelIndexForAttributes:(const iTermMetalGlyphAttributes *)attributes {
-    NSUInteger key = ((((NSUInteger)attributes->foreground[0]) << 40) |
-                      (((NSUInteger)attributes->foreground[1]) << 32) |
-                      (((NSUInteger)attributes->foreground[2]) << 24) |
-                      (((NSUInteger)attributes->background[0]) << 16) |
-                      (((NSUInteger)attributes->background[1]) << 8) |
-                      (((NSUInteger)attributes->background[2]) << 0));
+    vector_float4 fg = (vector_float4){
+        attributes->foreground[0] / 255.0,
+        attributes->foreground[1] / 255.0,
+        attributes->foreground[2] / 255.0,
+        1
+    };
+    vector_float4 bg = (vector_float4){
+        attributes->background[0] / 255.0,
+        attributes->background[1] / 255.0,
+        attributes->background[2] / 255.0,
+        1
+    };
+    NSUInteger key = [iTermSubpixelModel keyForForegroundColor:fg backgroundColor:bg];
     NSNumber *index = _modelTable[@(key)];
     if (!index) {
-        vector_float4 fg = (vector_float4){
-            attributes->foreground[0] / 255.0,
-            attributes->foreground[1] / 255.0,
-            attributes->foreground[2] / 255.0,
-            1
-        };
-        vector_float4 bg = (vector_float4){
-            attributes->background[0] / 255.0,
-            attributes->background[1] / 255.0,
-            attributes->background[2] / 255.0,
-            1
-        };
         // TODO: Expire old models
         const NSInteger index = _models.count;
-        [_models addObject:[[iTermSubpixelModelBuilder sharedInstance] modelForForegoundColor:fg
-                                                                              backgroundColor:bg]];
-        _modelTable[@(key)] = @(index);
+        iTermSubpixelModel *model = [[iTermSubpixelModelBuilder sharedInstance] modelForForegoundColor:fg
+                                                                                       backgroundColor:bg];
+        [_models addObject:model];
+        _modelTable[@(model.key)] = @(index);
+        DLog(@"Assign model %@ to index %@", model, @(index));
+        DLog(@"%@", _modelTable);
+        DLog(@"%@", _models);
         return index;
     } else {
         return index.intValue;

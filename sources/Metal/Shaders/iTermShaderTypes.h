@@ -8,11 +8,12 @@ typedef enum iTermVertexInputIndex {
     iTermVertexInputIndexViewportSize,
     iTermVertexInputIndexPerInstanceUniforms,
     iTermVertexInputIndexOffset,
-    iTermVertexInputIndexCursorDescription
+    iTermVertexInputIndexCursorDescription,
 } iTermVertexInputIndex;
 
 typedef enum iTermTextureIndex {
     iTermTextureIndexPrimary = 0,
+    iTermTextureIndexColorModels = 1 // Array of triples of 256-byte color tables in rgb order
 } iTermTextureIndex;
 
 typedef struct {
@@ -30,7 +31,7 @@ typedef struct {
     // Offset of source texture
     vector_float2 textureOffset;
 
-    vector_float4 color;
+    int colorModelIndex;
 } iTermTextPIU;
 
 typedef struct {

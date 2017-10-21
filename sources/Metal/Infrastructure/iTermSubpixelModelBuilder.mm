@@ -21,52 +21,32 @@ static const CGSize iTermSubpixelModelSize = { 80, 80 };
 static NSString *const iTermSubpixelModelString = @"O";
 
 @interface iTermSubpixelModel()
-@property (nonatomic, readonly) NSMutableData *mutableRedTable;
-@property (nonatomic, readonly) NSMutableData *mutableGreenTable;
-@property (nonatomic, readonly) NSMutableData *mutableBlueTable;
+@property (nonatomic, readonly) NSMutableData *mutableTable;
 @end
 
 @implementation iTermSubpixelModel {
-    NSMutableData *_redTable;
-    NSMutableData *_greenTable;
-    NSMutableData *_blueTable;
+    NSMutableData *_table;
 }
 
 - (instancetype)init {
     if (self) {
-        _redTable = [NSMutableData dataWithLength:256];
-        _greenTable = [NSMutableData dataWithLength:256];
-        _blueTable = [NSMutableData dataWithLength:256];
+        _table = [NSMutableData dataWithLength:4 * 256 * sizeof(unsigned short)];
     }
     return self;
 }
 
 - (NSString *)dump {
-    return [NSString stringWithFormat:@"Red:\n%@\nGreen:\n%@\nBlue:\n%@",
-            [self dumpTable:_redTable],
-            [self dumpTable:_greenTable],
-            [self dumpTable:_blueTable]];
-}
-
-- (NSString *)dumpTable:(NSData *)table {
     NSMutableArray *array = [NSMutableArray array];
-    const unsigned char *bytes = (const unsigned char *)table.bytes;
-    for (int i = 0; i < table.length; i++) {
-        [array addObject:[@(bytes[i]) stringValue]];
+    const unsigned short *bytes = (const unsigned short *)_table.bytes;
+    for (int i = 0; i < 256 * 4; i += 4) {
+        NSString *s = [NSString stringWithFormat:@"%@ -> (%@, %@, %@)", @(i / 4), @(bytes[i]), @(bytes[i+1]), @(bytes[i+2])];
+        [array addObject:s];
     }
-    return [array componentsJoinedByString:@", "];
+    return [array componentsJoinedByString:@"\n"];
 }
 
-- (NSMutableData *)mutableRedTable {
-    return _redTable;
-}
-
-- (NSMutableData *)mutableGreenTable {
-    return _greenTable;
-}
-
-- (NSMutableData *)mutableBlueTable {
-    return _blueTable;
+- (NSMutableData *)mutableTable {
+    return _table;
 }
 
 @end
@@ -78,6 +58,15 @@ static NSString *const iTermSubpixelModelString = @"O";
     std::unordered_map<int, int> *_indexToReferenceColor;
 
     NSMutableDictionary<NSNumber *, iTermSubpixelModel *> *_models;
+}
+
++ (instancetype)sharedInstance {
+    static dispatch_once_t onceToken;
+    static id instance;
+    dispatch_once(&onceToken, ^{
+        instance = [[self alloc] init];
+    });
+    return instance;
 }
 
 + (NSData *)dataForImageWithForegroundColor:(vector_float4)foregroundColor
@@ -239,11 +228,11 @@ static NSString *const iTermSubpixelModelString = @"O";
 
     iTermSubpixelModel *model = [[iTermSubpixelModel alloc] init];
     DLog(@"Interpolate red values");
-    [self interpolateValuesInMap:&redMap toByteArrayInData:model.mutableRedTable];
+    [self interpolateValuesInMap:&redMap toUShortArrayInData:model.mutableTable offset:0 stride:4];
     DLog(@"Interpolate green values");
-    [self interpolateValuesInMap:&greenMap toByteArrayInData:model.mutableGreenTable];
+    [self interpolateValuesInMap:&greenMap toUShortArrayInData:model.mutableTable offset:1 stride:4];
     DLog(@"Interpolate blue values");
-    [self interpolateValuesInMap:&blueMap toByteArrayInData:model.mutableBlueTable];
+    [self interpolateValuesInMap:&blueMap toUShortArrayInData:model.mutableTable offset:2 stride:4];
 
     _models[@(key)] = model;
     return model;
@@ -254,7 +243,7 @@ static NSString *const iTermSubpixelModelString = @"O";
 }
 
 namespace iTerm2 {
-    void Backfill(double slope, int previousReferenceColor, double value, unsigned char *output) {
+    void Backfill(double slope, int previousReferenceColor, double value, size_t stride, unsigned short *output) {
         // Backfill from this value to a reference color of 0
         double backfillSlope = -slope;
         if (value + backfillSlope * previousReferenceColor < 0) {
@@ -263,28 +252,31 @@ namespace iTerm2 {
         double backfillValue = value;
         DLog(@"Backfill [0, %d] with values [%f, %f]", previousReferenceColor, MAX(0, backfillValue + backfillSlope * previousReferenceColor), backfillValue);
         for (int i = previousReferenceColor; i >= 0; i--) {
-            output[i] = MAX(0, round(backfillValue));
+            output[i * stride] = MAX(0, round(backfillValue));
             backfillValue += backfillSlope;
         }
     }
 
-    void Fill(double slope, double value, int previousReferenceColor, int referenceColor, unsigned char *output) {
+    void Fill(double slope, double value, int previousReferenceColor, int referenceColor, size_t stride, unsigned short *output) {
         // Fill between this color and the previous reference color
         DLog(@"Fill range [%d, %d] with values [%f, %f]", previousReferenceColor, referenceColor, value, value + slope * (referenceColor - previousReferenceColor));
         for (int i = previousReferenceColor; i <= referenceColor; i++) {
-            output[i] = value;
+            output[i * stride] = value;
             value += slope;
         }
     }
 }
 
 - (void)interpolateValuesInMap:(std::map<unsigned char, unsigned char> *)modelToReferenceMap
-             toByteArrayInData:(NSMutableData *)destinationData {
+             toUShortArrayInData:(NSMutableData *)destinationData
+                        offset:(size_t)offset
+                        stride:(size_t)stride {
     int previousModelColor = -1;
     int previousReferenceColor = -1;
     BOOL first = YES;
     double slope = 0;
-    unsigned char *output = (unsigned char *)destinationData.mutableBytes;
+    unsigned short *output = (unsigned short *)destinationData.mutableBytes;
+    output += offset;
     for (auto kv : *modelToReferenceMap) {
         const int referenceColor = kv.first;
         const int modelColor = kv.second;
@@ -294,10 +286,10 @@ namespace iTerm2 {
             slope = static_cast<double>(modelColor - previousModelColor) / static_cast<double>(referenceColor - previousReferenceColor);
             double value = previousModelColor;
             if (first) {
-                iTerm2::Backfill(slope, previousReferenceColor, modelColor, output);
+                iTerm2::Backfill(slope, previousReferenceColor, modelColor, stride, output);
                 first = NO;
             }
-            iTerm2::Fill(slope, value, previousReferenceColor, referenceColor, output);
+            iTerm2::Fill(slope, value, previousReferenceColor, referenceColor, stride, output);
         }
         previousModelColor = modelColor;
         previousReferenceColor = referenceColor;
@@ -309,7 +301,7 @@ namespace iTerm2 {
     if (value + slope * distanceLeft > 255) {
         slope = (255 - value) / distanceLeft;
     }
-    iTerm2::Fill(slope, value, previousReferenceColor, 255, output);
+    iTerm2::Fill(slope, value, previousReferenceColor, 255, stride, output);
 }
 
 @end

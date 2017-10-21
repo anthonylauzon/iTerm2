@@ -13,6 +13,7 @@ typedef struct {
 } iTermMetalGlyphKey;
 
 typedef struct {
-    CGFloat foregroundColor[4];
+    unsigned char foreground[4];
+    unsigned char background[4];
 } iTermMetalGlyphAttributes;
 

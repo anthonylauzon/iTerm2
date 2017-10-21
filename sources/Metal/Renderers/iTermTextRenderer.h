@@ -38,6 +38,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)releaseContext:(iTermTextRendererContext *)context;
 
+- (void)drawWithRenderEncoder:(id<MTLRenderCommandEncoder>)renderEncoder
+                      context:(iTermTextRendererContext *)context;
+
 @end
 
 NS_ASSUME_NONNULL_END

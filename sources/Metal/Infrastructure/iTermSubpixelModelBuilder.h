@@ -11,13 +11,12 @@
 
 @interface iTermSubpixelModel : NSObject
 
-// Each table contains 256 1-byte values that map a reference value to a color value in this model.
+// The table contains 256 RGBA values that map a reference value to a color value in this model.
 // The gray value is a pixel in a non-subpixel-antialiased rendering, while the color value is
 // the corresponding color in a subpixel-antialiased glyph in this model. Each combination of
-// foreground and background color should have a separate model.
-@property (nonatomic, readonly) NSData *redTable;
-@property (nonatomic, readonly) NSData *greenTable;
-@property (nonatomic, readonly) NSData *blueTable;
+// foreground and background color should have a separate model. Ignore the A, it's always 0.
+// Each value is an unsigned short (2 bytes)
+@property (nonatomic, readonly) NSData *table;
 
 - (NSString *)dump;
 
@@ -42,6 +41,8 @@
 //   glyphBGRAData.bytes[i+2] = model.blueTable.bytes[glyphBGRAData.bytes[i+2]];
 // }
 @interface iTermSubpixelModelBuilder : NSObject
+
++ (instancetype)sharedInstance;
 
 - (iTermSubpixelModel *)modelForForegoundColor:(vector_float4)foregroundColor
                                backgroundColor:(vector_float4)backgroundColor;

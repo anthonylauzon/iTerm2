@@ -1,5 +1,7 @@
 #import "iTermTextRenderer.h"
+
 #import "iTermMetalCellRenderer.h"
+#import "iTermSubpixelModelBuilder.h"
 #import "iTermTextureArray.h"
 #import "iTermTextureMap.h"
 
@@ -7,7 +9,7 @@
 
 @property (nonatomic, readonly) NSIndexSet *indexes;
 @property (nonatomic, readonly) dispatch_queue_t queue;
-
+@property (nonatomic, strong) NSData *subpixelModelData;
 - (void)addIndex:(NSInteger)index;
 
 @end
@@ -37,11 +39,18 @@
     iTermMetalCellRenderer *_cellRenderer;
     iTermTextureMap *_textureMap;
     iTermTextPIU *_piuContents;
+
+    NSMutableArray<iTermSubpixelModel *> *_models;
+    NSMutableDictionary<NSNumber *, NSNumber *> *_modelTable;  // Maps a 48 bit fg/bg color to an index into _models.
+    NSMutableData *_modelData;
 }
 
 - (instancetype)initWithDevice:(id<MTLDevice>)device {
     self = [super init];
     if (self) {
+        _models = [NSMutableArray array];
+        _modelTable = [NSMutableDictionary dictionary];
+        _modelData = [NSMutableData data];
         _cellRenderer = [[iTermMetalCellRenderer alloc] initWithDevice:device
                                                     vertexFunctionName:@"iTermTextVertexShader"
                                                   fragmentFunctionName:@"iTermTextFragmentShader"
@@ -112,6 +121,8 @@
                        completion:(void (^)(void))completion {
     assert(!_preparing);
     _preparing = YES;
+    // TODO: This is slow and not necessary to do every time.
+    context.subpixelModelData = [self newSubpixelModelData];
     [_textureMap blitNewTexturesFromStagingAreaWithCompletion:^{
         completion();
         _preparing = NO;
@@ -119,7 +130,8 @@
 }
 
 // Assumes the local texture is up to date.
-- (void)drawWithRenderEncoder:(id<MTLRenderCommandEncoder>)renderEncoder {
+- (void)drawWithRenderEncoder:(id<MTLRenderCommandEncoder>)renderEncoder
+                      context:(nonnull iTermTextRendererContext *)context {
     [_cellRenderer.pius didModifyRange:NSMakeRange(0, _cellRenderer.pius.length)];
     _cellRenderer.vertexBuffer.label = @"text vertex buffer";
     _cellRenderer.pius.label = @"text PIUs";
@@ -131,8 +143,25 @@
                   vertexBuffers:@{ @(iTermVertexInputIndexVertices): _cellRenderer.vertexBuffer,
                                    @(iTermVertexInputIndexPerInstanceUniforms): _cellRenderer.pius,
                                    @(iTermVertexInputIndexOffset): _cellRenderer.offsetBuffer }
-                       textures:@{ @(iTermTextureIndexPrimary): _textureMap.array.texture }];
+                       textures:@{ @(iTermTextureIndexPrimary): _textureMap.array.texture,
+                                   @(iTermTextureIndexColorModels): [self subpixelTextureFromContext:context] }];
     [self allocateNewPIUs];
+}
+
+- (id<MTLTexture>)subpixelTextureFromContext:(nonnull iTermTextRendererContext *)context {
+    MTLTextureDescriptor *textureDescriptor = [[MTLTextureDescriptor alloc] init];
+
+    textureDescriptor.textureType = MTLTextureType1D;
+    textureDescriptor.pixelFormat = MTLPixelFormatRGBA16Uint;  // Ordinary format with four 16-bit unsigned integer components in RGBA order
+    const NSUInteger width = context.subpixelModelData.length / (4 * sizeof(unsigned short));
+    textureDescriptor.width = width;
+    id<MTLTexture> texture = [_cellRenderer.device newTextureWithDescriptor:textureDescriptor];
+    MTLRegion region = MTLRegionMake1D(0, width);
+    [texture replaceRegion:region
+               mipmapLevel:0
+                 withBytes:context.subpixelModelData.bytes
+               bytesPerRow:context.subpixelModelData.length];
+    return texture;
 }
 
 - (void)startNewFrame {
@@ -162,14 +191,52 @@
             iTermTextPIU *piu = &_piuContents[i];
             MTLOrigin origin = [array offsetForIndex:index];
             piu->textureOffset = (vector_float2){ origin.x * w, origin.y * h };
-            piu->color = (vector_float4){
-                attributes[x].foregroundColor[0],
-                attributes[x].foregroundColor[1],
-                attributes[x].foregroundColor[2],
-                attributes[x].foregroundColor[3],
-            };
+            piu->colorModelIndex = [self colorModelIndexForAttributes:&attributes[x]];
             [context addIndex:index];
         }
+    }
+}
+
+- (NSData *)newSubpixelModelData {
+    const size_t tableSize = 256 * 4 * sizeof(unsigned short);
+    NSMutableData *data = [NSMutableData dataWithLength:_models.count * tableSize];
+    unsigned char *output = (unsigned char *)data.mutableBytes;
+    [_models enumerateObjectsUsingBlock:^(iTermSubpixelModel * _Nonnull model, NSUInteger idx, BOOL * _Nonnull stop) {
+        const size_t offset = idx * tableSize;
+        memcpy(output + offset, model.table.bytes, tableSize);
+    }];
+    return data;
+}
+
+- (int)colorModelIndexForAttributes:(const iTermMetalGlyphAttributes *)attributes {
+    NSUInteger key = ((((NSUInteger)attributes->foreground[0]) << 40) |
+                      (((NSUInteger)attributes->foreground[1]) << 32) |
+                      (((NSUInteger)attributes->foreground[2]) << 24) |
+                      (((NSUInteger)attributes->background[0]) << 16) |
+                      (((NSUInteger)attributes->background[1]) << 8) |
+                      (((NSUInteger)attributes->background[2]) << 0));
+    NSNumber *index = _modelTable[@(key)];
+    if (!index) {
+        vector_float4 fg = (vector_float4){
+            attributes->foreground[0] / 255.0,
+            attributes->foreground[1] / 255.0,
+            attributes->foreground[2] / 255.0,
+            1
+        };
+        vector_float4 bg = (vector_float4){
+            attributes->background[0] / 255.0,
+            attributes->background[1] / 255.0,
+            attributes->background[2] / 255.0,
+            1
+        };
+        // TODO: Expire old models
+        const NSInteger index = _models.count;
+        [_models addObject:[[iTermSubpixelModelBuilder sharedInstance] modelForForegoundColor:fg
+                                                                              backgroundColor:bg]];
+        _modelTable[@(key)] = @(index);
+        return index;
+    } else {
+        return index.intValue;
     }
 }
 

@@ -8,7 +8,7 @@ using namespace metal;
 typedef struct {
     float4 clipSpacePosition [[position]];
     float2 textureCoordinate;
-    float4 color;
+    int colorModelIndex;
 } iTermTextVertexFunctionOutput;
 
 vertex iTermTextVertexFunctionOutput
@@ -28,21 +28,30 @@ iTermTextVertexShader(uint vertexID [[ vertex_id ]],
     out.clipSpacePosition.w = 1;
 
     out.textureCoordinate = vertexArray[vertexID].textureCoordinate + perInstanceUniforms[iid].textureOffset;
-    out.color = perInstanceUniforms[iid].color;
+    out.colorModelIndex = perInstanceUniforms[iid].colorModelIndex;
 
     return out;
 }
 
 fragment float4
 iTermTextFragmentShader(iTermTextVertexFunctionOutput in [[stage_in]],
-                        texture2d<half> texture [[ texture(iTermTextureIndexPrimary) ]]) {
-    constexpr sampler textureSampler (mag_filter::linear,
-                                      min_filter::linear);
+                        texture2d<half> texture [[ texture(iTermTextureIndexPrimary) ]],
+                        texture1d<ushort> colorModels [[ texture(iTermTextureIndexColorModels) ]]) {
+    constexpr sampler textureSampler(mag_filter::linear,
+                                     min_filter::linear);
 
-    const half4 colorSample = texture.sample(textureSampler, in.textureCoordinate);
+    const half4 bwColor = texture.sample(textureSampler, in.textureCoordinate);
+    const short4 bwIntColor = static_cast<short4>(bwColor * 255);
 
-//    return float4(colorSample) * in.color;
-//    return in.color;
-    return float4(colorSample) * in.color;
+    // Base index for this color model
+    const int i = in.colorModelIndex * 256;
+
+    // Find RGB values to map colors in the black-on-white glyph to
+    constexpr sampler modelSampler(coord::pixel);
+    const ushort4 rgba = ushort4(colorModels.sample(modelSampler, i + bwIntColor.x).x,
+                                 colorModels.sample(modelSampler, i + bwIntColor.y).y,
+                                 colorModels.sample(modelSampler, i + bwIntColor.z).z,
+                                 bwIntColor.a);
+    return static_cast<float4>(rgba) / 255;
 }
 

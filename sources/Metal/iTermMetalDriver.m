@@ -318,7 +318,7 @@
         }
 //        [_copyModeCursorRenderer drawWithRenderEncoder:renderEncoder];
 
-        [_textRenderer drawWithRenderEncoder:renderEncoder];
+        [_textRenderer drawWithRenderEncoder:renderEncoder context:context.textContext];
 
         [_markRenderer drawWithRenderEncoder:renderEncoder];
 

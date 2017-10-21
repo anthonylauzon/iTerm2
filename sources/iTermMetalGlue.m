@@ -177,6 +177,9 @@ static NSColor *ColorForVector(vector_float4 v) {
             background[x] = [_colorMap fastProcessedBackgroundColorForBackgroundColor:unprocessed];
         }
         lastBackgroundKey = backgroundKey;
+        attributes[x].background[0] = background[x].x * 255;
+        attributes[x].background[1] = background[x].y * 255;
+        attributes[x].background[2] = background[x].z * 255;
 
         // Foreground colors
         // Build up a compact key describing all the inputs to a text color
@@ -203,9 +206,9 @@ static NSColor *ColorForVector(vector_float4 v) {
             currentColorKey->backgroundColor[0] == previousColorKey->backgroundColor[0] &&
             currentColorKey->backgroundColor[1] == previousColorKey->backgroundColor[1] &&
             currentColorKey->backgroundColor[2] == previousColorKey->backgroundColor[2]) {
-            memcpy(attributes[x].foregroundColor,
-                   attributes[x - 1].foregroundColor,
-                   sizeof(CGFloat) * 4);
+            memcpy(attributes[x].foreground,
+                   attributes[x - 1].foreground,
+                   sizeof(attributes[x]) * 4);
         } else {
             vector_float4 textColor = [self textColorForCharacter:&line[x]
                                                              line:row
@@ -214,10 +217,10 @@ static NSColor *ColorForVector(vector_float4 v) {
                                                         findMatch:findMatch
                                                 inUnderlinedRange:NO  // TODO
                                                             index:x];
-            attributes[x].foregroundColor[0] = textColor.x;
-            attributes[x].foregroundColor[1] = textColor.y;
-            attributes[x].foregroundColor[2] = textColor.z;
-            attributes[x].foregroundColor[3] = textColor.w;
+            attributes[x].foreground[0] = textColor.x * 255;
+            attributes[x].foreground[1] = textColor.y * 255;
+            attributes[x].foreground[2] = textColor.z * 255;
+            attributes[x].foreground[3] = textColor.w * 255;
         }
 
         // Swap current and previous
@@ -250,10 +253,9 @@ static NSColor *ColorForVector(vector_float4 v) {
                                            faint:NO
                                     isBackground:NO];
         }
-        attributes[_cursorInfo.coord.x].foregroundColor[0] = cursorTextColor.x;
-        attributes[_cursorInfo.coord.x].foregroundColor[1] = cursorTextColor.y;
-        attributes[_cursorInfo.coord.x].foregroundColor[2] = cursorTextColor.z;
-        attributes[_cursorInfo.coord.x].foregroundColor[3] = cursorTextColor.w;
+        attributes[_cursorInfo.coord.x].foreground[0] = cursorTextColor.x * 255;
+        attributes[_cursorInfo.coord.x].foreground[1] = cursorTextColor.y * 255;
+        attributes[_cursorInfo.coord.x].foreground[2] = cursorTextColor.z * 255;
     }
 }
 
@@ -411,7 +413,7 @@ static NSColor *ColorForVector(vector_float4 v) {
                                              8,
                                              size.width * 4,
                                              colorSpace,
-                                             kCGImageAlphaPremultipliedLast);
+                                             kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host);
     CGColorSpaceRelease(colorSpace);
 
     CGContextSetRGBFillColor(ctx, 0, 0, 0, 0);
@@ -451,6 +453,10 @@ static NSColor *ColorForVector(vector_float4 v) {
     baselineOffset:(CGFloat)baselineOffset
              scale:(CGFloat)scale
            context:(CGContextRef)ctx {
+    // Fill the background with white.
+    CGContextSetRGBFillColor(ctx, 1, 1, 1, 1);
+    CGContextFillRect(ctx, CGRectMake(0, 0, size.width, size.height));
+
     DLog(@"Draw %@ of size %@", string, NSStringFromSize(size));
     if (string.length == 0) {
         return;
@@ -473,6 +479,14 @@ static NSColor *ColorForVector(vector_float4 v) {
     const BOOL antiAlias = YES;
     CGContextSetShouldAntialias(ctx, antiAlias);
 
+    // This is how the subpixel model builder sets up subpixel AA. Maybe it shouldn't? But these
+    // two functions need to do the same thing.
+    CGContextSetAllowsFontSubpixelQuantization(ctx, YES);
+    CGContextSetShouldSubpixelQuantizeFonts(ctx, YES);
+    CGContextSetAllowsFontSubpixelPositioning(ctx, YES);
+    CGContextSetShouldSubpixelPositionFonts(ctx, YES);
+    CGContextSetShouldSmoothFonts(ctx, YES);
+
     size_t length = numCodes;
 
     // TODO: This is slow. Avoid doing it.
@@ -486,7 +500,7 @@ static NSColor *ColorForVector(vector_float4 v) {
 
     // TODO: could use extended srgb on macOS 10.12+
     CGContextSetFillColorSpace(ctx, CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
-    const CGFloat components[4] = { 1.0, 1.0, 1.0, 1.0 };
+    const CGFloat components[4] = { 0.0, 0.0, 0.0, 1.0 };
     CGContextSetFillColor(ctx, components);
     double y = -baselineOffset * scale;
     // Flip vertically and translate to (x, y).

@@ -45,13 +45,13 @@ iTermTextFragmentShader(iTermTextVertexFunctionOutput in [[stage_in]],
 
     // Base index for this color model
     const int i = in.colorModelIndex * 256;
-
+    const half alpha = 255 * (1 - (bwColor.x + bwColor.y + bwColor.z) / 3);
     // Find RGB values to map colors in the black-on-white glyph to
     constexpr sampler modelSampler(coord::pixel);
     const ushort4 rgba = ushort4(colorModels.sample(modelSampler, i + bwIntColor.x).x,
                                  colorModels.sample(modelSampler, i + bwIntColor.y).y,
                                  colorModels.sample(modelSampler, i + bwIntColor.z).z,
-                                 bwIntColor.a);
+                                 alpha);
     return static_cast<float4>(rgba) / 255;
 }
 

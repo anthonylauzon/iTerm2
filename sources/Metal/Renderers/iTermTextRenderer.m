@@ -17,6 +17,8 @@
 
 @implementation iTermTextRendererContext {
     NSMutableIndexSet *_indexes;
+    NSMutableArray<iTermSubpixelModel *> *_models;
+    NSMutableDictionary<NSNumber *, NSNumber *> *_modelTable;  // Maps a 48 bit fg/bg color to an index into _models.
     dispatch_group_t _group;
 }
 
@@ -25,6 +27,8 @@
     if (self) {
         _queue = queue;
         _indexes = [NSMutableIndexSet indexSet];
+        _models = [NSMutableArray array];
+        _modelTable = [NSMutableDictionary dictionary];
         _group = dispatch_group_create();
     }
     return self;
@@ -34,6 +38,48 @@
     [_indexes addIndex:index];
 }
 
+- (NSData *)newSubpixelModelData {
+    const size_t tableSize = 256 * 4 * sizeof(unsigned short);
+    NSMutableData *data = [NSMutableData dataWithLength:_models.count * tableSize];
+    unsigned char *output = (unsigned char *)data.mutableBytes;
+    [_models enumerateObjectsUsingBlock:^(iTermSubpixelModel * _Nonnull model, NSUInteger idx, BOOL * _Nonnull stop) {
+        const size_t offset = idx * tableSize;
+        memcpy(output + offset, model.table.bytes, tableSize);
+    }];
+    return data;
+}
+
+- (int)colorModelIndexForAttributes:(const iTermMetalGlyphAttributes *)attributes {
+    vector_float4 fg = (vector_float4){
+        attributes->foreground[0] / 255.0,
+        attributes->foreground[1] / 255.0,
+        attributes->foreground[2] / 255.0,
+        1
+    };
+    vector_float4 bg = (vector_float4){
+        attributes->background[0] / 255.0,
+        attributes->background[1] / 255.0,
+        attributes->background[2] / 255.0,
+        1
+    };
+    NSUInteger key = [iTermSubpixelModel keyForForegroundColor:fg backgroundColor:bg];
+    NSNumber *index = _modelTable[@(key)];
+    if (!index) {
+        // TODO: Expire old models
+        const NSInteger index = _models.count;
+        iTermSubpixelModel *model = [[iTermSubpixelModelBuilder sharedInstance] modelForForegoundColor:fg
+                                                                                       backgroundColor:bg];
+        [_models addObject:model];
+        _modelTable[@(model.key)] = @(index);
+        DLog(@"Assign model %@ to index %@", model, @(index));
+        DLog(@"%@", _modelTable);
+        DLog(@"%@", _models);
+        return index;
+    } else {
+        return index.intValue;
+    }
+}
+
 @end
 
 @implementation iTermTextRenderer {
@@ -41,16 +87,12 @@
     iTermTextureMap *_textureMap;
     iTermTextPIU *_piuContents;
 
-    NSMutableArray<iTermSubpixelModel *> *_models;
-    NSMutableDictionary<NSNumber *, NSNumber *> *_modelTable;  // Maps a 48 bit fg/bg color to an index into _models.
     NSMutableData *_modelData;
 }
 
 - (instancetype)initWithDevice:(id<MTLDevice>)device {
     self = [super init];
     if (self) {
-        _models = [NSMutableArray array];
-        _modelTable = [NSMutableDictionary dictionary];
         _modelData = [NSMutableData data];
         _cellRenderer = [[iTermMetalCellRenderer alloc] initWithDevice:device
                                                     vertexFunctionName:@"iTermTextVertexShader"
@@ -123,7 +165,7 @@
     assert(!_preparing);
     _preparing = YES;
     // TODO: This is slow and not necessary to do every time.
-    context.subpixelModelData = [self newSubpixelModelData];
+    context.subpixelModelData = [context newSubpixelModelData];
     [_textureMap blitNewTexturesFromStagingAreaWithCompletion:^{
         completion();
         _preparing = NO;
@@ -192,51 +234,9 @@
             iTermTextPIU *piu = &_piuContents[i];
             MTLOrigin origin = [array offsetForIndex:index];
             piu->textureOffset = (vector_float2){ origin.x * w, origin.y * h };
-            piu->colorModelIndex = [self colorModelIndexForAttributes:&attributes[x]];
+            piu->colorModelIndex = [context colorModelIndexForAttributes:&attributes[x]];
             [context addIndex:index];
         }
-    }
-}
-
-- (NSData *)newSubpixelModelData {
-    const size_t tableSize = 256 * 4 * sizeof(unsigned short);
-    NSMutableData *data = [NSMutableData dataWithLength:_models.count * tableSize];
-    unsigned char *output = (unsigned char *)data.mutableBytes;
-    [_models enumerateObjectsUsingBlock:^(iTermSubpixelModel * _Nonnull model, NSUInteger idx, BOOL * _Nonnull stop) {
-        const size_t offset = idx * tableSize;
-        memcpy(output + offset, model.table.bytes, tableSize);
-    }];
-    return data;
-}
-
-- (int)colorModelIndexForAttributes:(const iTermMetalGlyphAttributes *)attributes {
-    vector_float4 fg = (vector_float4){
-        attributes->foreground[0] / 255.0,
-        attributes->foreground[1] / 255.0,
-        attributes->foreground[2] / 255.0,
-        1
-    };
-    vector_float4 bg = (vector_float4){
-        attributes->background[0] / 255.0,
-        attributes->background[1] / 255.0,
-        attributes->background[2] / 255.0,
-        1
-    };
-    NSUInteger key = [iTermSubpixelModel keyForForegroundColor:fg backgroundColor:bg];
-    NSNumber *index = _modelTable[@(key)];
-    if (!index) {
-        // TODO: Expire old models
-        const NSInteger index = _models.count;
-        iTermSubpixelModel *model = [[iTermSubpixelModelBuilder sharedInstance] modelForForegoundColor:fg
-                                                                                       backgroundColor:bg];
-        [_models addObject:model];
-        _modelTable[@(model.key)] = @(index);
-        DLog(@"Assign model %@ to index %@", model, @(index));
-        DLog(@"%@", _modelTable);
-        DLog(@"%@", _models);
-        return index;
-    } else {
-        return index.intValue;
     }
 }
 

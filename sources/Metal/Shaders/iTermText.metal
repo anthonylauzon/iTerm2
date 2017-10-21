@@ -41,17 +41,25 @@ iTermTextFragmentShader(iTermTextVertexFunctionOutput in [[stage_in]],
                                      min_filter::linear);
 
     const half4 bwColor = texture.sample(textureSampler, in.textureCoordinate);
+    if (bwColor.x == 1 && bwColor.y == 1 && bwColor.z == 1) {
+        // TODO
+        // This doesn't draw the background when the pixel doesn't contain any of the glyph.
+        // But this will look terrible over a background image, diagonal stripes, or badge. I should
+        // build a fixed number of color models that evenly sample the space of possible color
+        // models, then sample the color in the drawable and have the fragment shader interpolate
+        // between the nearest models for the background color of this pixel.
+        discard_fragment();
+    }
     const short4 bwIntColor = static_cast<short4>(bwColor * 255);
 
     // Base index for this color model
     const int i = in.colorModelIndex * 256;
-    const half alpha = 255 * (1 - (bwColor.x + bwColor.y + bwColor.z) / 3);
     // Find RGB values to map colors in the black-on-white glyph to
     constexpr sampler modelSampler(coord::pixel);
     const ushort4 rgba = ushort4(colorModels.sample(modelSampler, i + bwIntColor.x).x,
                                  colorModels.sample(modelSampler, i + bwIntColor.y).y,
                                  colorModels.sample(modelSampler, i + bwIntColor.z).z,
-                                 alpha);
+                                 255);
     return static_cast<float4>(rgba) / 255;
 }
 
